@@ -107,57 +107,47 @@ const solve = (lv, banned) => solveFrom(parse(lv.rows), lv, banned);
   assert.equal(withoutKey, 4, '禁用“靠墙停车”后 par 应变成 4');
 }
 
-// ---- 3. 第 3 关：借它停车（异色方块也能当刹车） ----
+// ---- 3. 第 3 关：借它停车（异色方块当刹车，而且停车位要自己推出来） ----
 {
   const lv = LEVELS[2];
   const st = parse(lv.rows);
   assert.equal(countBlocks(st), 4);
 
-  // 上方的墙把 A(3,4) 封在第三行：向上是无效操作
-  assert.equal(moveFrom(st, 3, 4, 'U'), null, 'A(3,4) 上方是墙，向上应为无效操作');
+  // 首步不是消对，而是把挡路的 B 推到墙边
+  const push = moveFrom(st, 4, 4, 'R');
+  assert.deepEqual(push, { r: 4, c: 4, d: 'R', res: 'move', tr: 4, tc: 5 });
 
-  // A(1,2) 向下：撞到 B(4,2) 前停住，正好落在 (3,2)，与 A(3,4) 同行
-  const brake = moveFrom(st, 1, 2, 'D');
-  assert.deepEqual(brake, { r: 1, c: 2, d: 'D', res: 'move', tr: 3, tc: 2 });
+  // 推完之后，A(4,2) 向右正好停在 B 前面——这就是“借它停车”
+  const s1 = applyMove(st, push);
+  const park = moveFrom(s1, 4, 2, 'R');
+  assert.deepEqual(park, { r: 4, c: 2, d: 'R', res: 'move', tr: 4, tc: 4 });
 
-  const s1 = applyMove(st, brake);
-  const aPop = moveFrom(s1, 3, 2, 'R');
-  assert.deepEqual(aPop, { r: 3, c: 2, d: 'R', res: 'pop', br: 3, bc: 4 });
-  const s2 = applyMove(s1, aPop);
-  const bPop = moveFrom(s2, 4, 2, 'R');
-  assert.deepEqual(bPop, { r: 4, c: 2, d: 'R', res: 'pop', br: 4, bc: 4 });
-  const s3 = applyMove(s2, bPop);
-  assert.equal(isGoal(s3, lv), true, '三步后应通关');
-  assert.equal(solve(lv), 3);
+  const s2 = applyMove(s1, park);
+  const aPop = moveFrom(s2, 2, 4, 'D');
+  assert.deepEqual(aPop, { r: 2, c: 4, d: 'D', res: 'pop', br: 4, bc: 4 });
+  const s3 = applyMove(s2, aPop);
+  const bPop = moveFrom(s3, 2, 5, 'D');
+  assert.deepEqual(bPop, { r: 2, c: 5, d: 'D', res: 'pop', br: 4, bc: 5 });
+  const s4 = applyMove(s3, bPop);
+  assert.equal(isGoal(s4, lv), true, '四步后应通关');
+  assert.equal(solve(lv), 4);
 
-  // 只有 A(1,2) 向下能保持 3 步最优
-  const optimal = legalMoves(st)
+  // 只有 B(4,4) 向右能保持 4 步最优
+  const firstMoves = legalMoves(st)
     .map((m) => ({ m, total: 1 + solveFrom(applyMove(st, m), lv) }))
-    .filter((x) => x.total === 3);
+    .filter((x) => Number.isFinite(x.total));
+  const optimal = firstMoves.filter((x) => x.total === 4);
   assert.equal(optimal.length, 1, '第 3 关应有且仅有 1 个最优首步');
-  assert.deepEqual(optimal[0].m, {
-    r: 1,
-    c: 2,
-    d: 'D',
-    res: 'move',
-    tr: 3,
-    tc: 2,
-  });
+  assert.deepEqual(optimal[0].m, push);
 
-  // 诱惑步：先消 B 会失去刹车，最优退化为 4 步（仍能通关，2 星）
-  const greedy = moveFrom(st, 4, 2, 'R');
-  assert.equal(greedy.res, 'pop');
-  assert.equal(
-    1 + solveFrom(applyMove(st, greedy), lv),
-    4,
-    '先消 B 应退化为 4 步',
-  );
+  // 其余 12 个首步全部要多走至少一步——不先推块当刹车就要绕远
+  assert.equal(firstMoves.length, 13);
+  const rest = firstMoves.filter((x) => x.total !== 4);
+  assert.equal(rest.length, 12);
+  assert.equal(Math.min(...rest.map((x) => x.total)), 5);
 
-  // 禁用关键步后，最优解同样退化为 4 步
-  assert.equal(
-    solve(lv, (m) => m.r === 1 && m.c === 2 && m.d === 'D'),
-    4,
-  );
+  // 禁用关键步后 par 退化为 5
+  assert.equal(solve(lv, (m) => m.r === 4 && m.c === 4 && m.d === 'R'), 5);
 }
 
 // ---- 4. 第 4 关：只要红色（第一次换目标） ----
@@ -265,6 +255,6 @@ for (const lv of RESEARCH_LEVELS) {
 
 console.log(
   `规则内核 OK：4 关 par = ${LEVELS.map((l) => l.par).join('/')}；` +
-    `第 2、3、4 关最优首步唯一；第 3 关先消 B、第 4 关先消蓝都退化为 4 步；` +
+    `第 2、3、4 关最优首步唯一；第 3 关不先推块 par 退化为 5、第 4 关先消蓝退化为 4 步；` +
     `与 research 引擎对拍 ${compared} 个状态一致。`,
 );
