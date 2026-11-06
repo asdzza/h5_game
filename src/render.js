@@ -29,15 +29,127 @@ export function computeLayout(cssW, cssH, w, h) {
   };
 }
 
-function roundRect(ctx, x, y, w, h, r) {
+function roundRectPath(ctx, x, y, w, h, r) {
   const rr = Math.min(r, w / 2, h / 2);
-  ctx.beginPath();
   ctx.moveTo(x + rr, y);
   ctx.arcTo(x + w, y, x + w, y + h, rr);
   ctx.arcTo(x + w, y + h, x, y + h, rr);
   ctx.arcTo(x, y + h, x, y, rr);
   ctx.arcTo(x, y, x + w, y, rr);
   ctx.closePath();
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  roundRectPath(ctx, x, y, w, h, r);
+}
+
+// 棋盘外圈：一整块深色石框，而不是 24 个暗淡的小方块
+function drawWallFrame(ctx, bx, by, cell, w, h) {
+  const outerR = cell * 0.28;
+  const innerR = cell * 0.14;
+  const ix = bx + cell;
+  const iy = by + cell;
+  const iw = (w - 2) * cell;
+  const ih = (h - 2) * cell;
+
+  ctx.save();
+  ctx.beginPath();
+  roundRectPath(ctx, bx, by, cell * w, cell * h, outerR);
+  roundRectPath(ctx, ix, iy, iw, ih, innerR);
+  const g = ctx.createLinearGradient(bx, by, bx, by + cell * h);
+  g.addColorStop(0, '#3b4a61');
+  g.addColorStop(0.55, '#263244');
+  g.addColorStop(1, '#17202e');
+  ctx.fillStyle = g;
+  ctx.fill('evenodd');
+
+  // 外沿高光 + 内沿阴影，让边框像一块有厚度的石头
+  ctx.strokeStyle = 'rgba(226,232,240,.16)';
+  ctx.lineWidth = Math.max(1, cell * 0.02);
+  ctx.beginPath();
+  roundRectPath(ctx, bx + 1, by + 1, cell * w - 2, cell * h - 2, outerR);
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(0,0,0,.55)';
+  ctx.lineWidth = Math.max(1, cell * 0.04);
+  ctx.beginPath();
+  roundRectPath(ctx, ix, iy, iw, ih, innerR);
+  ctx.stroke();
+
+  // 顶部一道极淡的反光，避免整块边框死黑
+  const shine = ctx.createLinearGradient(bx, by, bx, by + cell * 1.6);
+  shine.addColorStop(0, 'rgba(255,255,255,.10)');
+  shine.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = shine;
+  ctx.beginPath();
+  roundRectPath(ctx, bx, by, cell * w, cell * 1.6, outerR);
+  ctx.fill();
+  ctx.restore();
+}
+
+// 内墙：亮一档的石块 + 斜纹，和空地支路一眼分开
+function drawWallTile(ctx, px, py, cell) {
+  const inset = cell * 0.055;
+  const size = cell - inset * 2;
+  const x = px + inset;
+  const y = py + inset;
+  const r = cell * 0.16;
+
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,.45)';
+  ctx.shadowBlur = cell * 0.1;
+  ctx.shadowOffsetY = cell * 0.045;
+
+  const g = ctx.createLinearGradient(x, y, x, y + size);
+  g.addColorStop(0, '#8494aa');
+  g.addColorStop(0.42, '#5c6c82');
+  g.addColorStop(1, '#334155');
+  ctx.fillStyle = g;
+  roundRect(ctx, x, y, size, size, r);
+  ctx.fill();
+
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetY = 0;
+
+  // 斜向石纹：只画在内墙，外框保持整块
+  ctx.save();
+  roundRect(ctx, x, y, size, size, r);
+  ctx.clip();
+  ctx.strokeStyle = 'rgba(15,23,42,.30)';
+  ctx.lineWidth = Math.max(1, cell * 0.035);
+  for (let d = -size; d < size * 2; d += cell * 0.26) {
+    ctx.beginPath();
+    ctx.moveTo(x + d, y);
+    ctx.lineTo(x + d - size, y + size);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  ctx.strokeStyle = 'rgba(226,232,240,.50)';
+  ctx.lineWidth = Math.max(1, cell * 0.024);
+  roundRect(ctx, x, y, size, size, r);
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(255,255,255,.28)';
+  ctx.lineWidth = Math.max(1, cell * 0.018);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y + cell * 0.055);
+  ctx.lineTo(x + size - r, y + cell * 0.055);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function hasFullWallRing(state) {
+  const { w, h, c } = state;
+  for (let x = 0; x < w; x++) {
+    if (c[x] !== -1 || c[(h - 1) * w + x] !== -1) return false;
+  }
+  for (let y = 0; y < h; y++) {
+    if (c[y * w] !== -1 || c[y * w + w - 1] !== -1) return false;
+  }
+  return true;
 }
 
 function drawBlock(ctx, px, py, cell, colorIndex, opts = {}) {
@@ -154,20 +266,16 @@ export function draw(ctx, layout, state, fx = {}) {
   }
 
   // 格子与墙
+  const ring = hasFullWallRing(state);
+  if (ring) drawWallFrame(ctx, bx, by, cell, w, h);
   for (let r = 0; r < h; r++) {
     for (let c = 0; c < w; c++) {
       const v = state.c[r * w + c];
       const px = bx + c * cell;
       const py = by + r * cell;
       if (v === -1) {
-        ctx.save();
-        ctx.fillStyle = 'rgba(148,163,184,.13)';
-        roundRect(ctx, px + cell * 0.06, py + cell * 0.06, cell * 0.88, cell * 0.88, cell * 0.14);
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(148,163,184,.18)';
-        ctx.lineWidth = Math.max(1, cell * 0.015);
-        ctx.stroke();
-        ctx.restore();
+        if (ring && (r === 0 || c === 0 || r === h - 1 || c === w - 1)) continue;
+        drawWallTile(ctx, px, py, cell);
       } else {
         ctx.fillStyle = 'rgba(255,255,255,.025)';
         roundRect(ctx, px + cell * 0.08, py + cell * 0.08, cell * 0.84, cell * 0.84, cell * 0.12);

@@ -160,16 +160,76 @@ const solve = (lv, banned) => solveFrom(parse(lv.rows), lv, banned);
   );
 }
 
-// ---- 4. 关卡参数：par 必须等于 BFS 最优，且 par < 上限 ----
+// ---- 4. 第 4 关：只要红色（第一次换目标） ----
+{
+  const lv = LEVELS[3];
+  const st = parse(lv.rows);
+  assert.equal(lv.goal, 'color');
+  assert.equal(lv.targetColor, 1);
+  assert.equal(countBlocks(st), 5);
+
+  // 三块蓝：怎么消都会剩一块，“清空全场”在这关根本不存在
+  let blues = 0;
+  for (const v of st.c) if (v === 2) blues++;
+  assert.equal(blues, 3, '第 4 关应有 3 块蓝，清场不可能');
+
+  // 右边的 A(3,5) 向左：被 (3,3) 的墙挡住，停在 (3,4)
+  const pushLeft = moveFrom(st, 3, 5, 'L');
+  assert.deepEqual(pushLeft, { r: 3, c: 5, d: 'L', res: 'move', tr: 3, tc: 4 });
+
+  const s1 = applyMove(st, pushLeft);
+  // 再向上：一路滑到 (1,4)，与左上角的 A 同排
+  const pushUp = moveFrom(s1, 3, 4, 'U');
+  assert.deepEqual(pushUp, { r: 3, c: 4, d: 'U', res: 'move', tr: 1, tc: 4 });
+
+  const s2 = applyMove(s1, pushUp);
+  const aPop = moveFrom(s2, 1, 1, 'R');
+  assert.deepEqual(aPop, { r: 1, c: 1, d: 'R', res: 'pop', br: 1, bc: 4 });
+  const s3 = applyMove(s2, aPop);
+  assert.equal(isGoal(s3, lv), true, '三步后红色应全部消失');
+  assert.ok(countBlocks(s3) > 0, '通关时蓝块还在');
+  assert.equal(solve(lv), 3);
+
+  // 唯一最优首步：右边那块 A 向左
+  const optimal = legalMoves(st)
+    .map((m) => ({ m, total: 1 + solveFrom(applyMove(st, m), lv) }))
+    .filter((x) => x.total === 3);
+  assert.equal(optimal.length, 1, '第 4 关应有且仅有 1 个最优首步');
+  assert.deepEqual(optimal[0].m, { r: 3, c: 5, d: 'L', res: 'move', tr: 3, tc: 4 });
+
+  // 诱惑步：先消一对蓝，白花一步 → 4 步（2 星）
+  const greedy = moveFrom(st, 4, 2, 'R');
+  assert.equal(greedy.res, 'pop');
+  assert.equal(
+    1 + solveFrom(applyMove(st, greedy), lv),
+    4,
+    '先消蓝应退化为 4 步',
+  );
+
+  // 禁用关键步后仍能通关（4 步），只是少星
+  assert.equal(solve(lv, (m) => m.r === 3 && m.c === 5 && m.d === 'L'), 4);
+}
+
+// ---- 5. 关卡参数：par 必须等于 BFS 最优，且 par < 上限 ----
 for (const lv of LEVELS) {
   const par = solve(lv);
   assert.equal(par, lv.par, `第 ${lv.id} 关 par 应为 ${lv.par}，实际 ${par}`);
   assert.ok(lv.par <= lv.limit, `第 ${lv.id} 关 par 不应超过步数上限`);
   assert.ok(lv.limit - lv.par >= 1, `第 ${lv.id} 关需要留出容错步数`);
-  assert.equal(countBlocks(parse(lv.rows)), 4, `第 ${lv.id} 关方块数应为 4`);
+
+  const st0 = parse(lv.rows);
+  const total = countBlocks(st0);
+  assert.ok(total >= 4 && total <= 12, `第 ${lv.id} 关方块数应在 4–12，实际 ${total}`);
+  if (lv.goal === 'clear') {
+    assert.equal(total % 2, 0, `第 ${lv.id} 关清场模式方块数必须成对`);
+  } else {
+    let target = 0;
+    for (const v of st0.c) if (v === lv.targetColor) target++;
+    assert.ok(target >= 2 && target % 2 === 0, `第 ${lv.id} 关目标色必须成对`);
+  }
 }
 
-// ---- 5. 与 research 引擎逐状态对拍（13 关 × 120 步固定随机游走） ----
+// ---- 6. 与 research 引擎逐状态对拍（13 关 × 120 步固定随机游走） ----
 function mulberry32(a) {
   return function () {
     a |= 0;
@@ -204,7 +264,7 @@ for (const lv of RESEARCH_LEVELS) {
 }
 
 console.log(
-  `规则内核 OK：3 关 par = ${LEVELS.map((l) => l.par).join('/')}；` +
-    `第 2、3 关最优首步唯一；第 3 关先消 B 退化为 4 步；` +
+  `规则内核 OK：4 关 par = ${LEVELS.map((l) => l.par).join('/')}；` +
+    `第 2、3、4 关最优首步唯一；第 3 关先消 B、第 4 关先消蓝都退化为 4 步；` +
     `与 research 引擎对拍 ${compared} 个状态一致。`,
 );

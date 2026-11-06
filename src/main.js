@@ -7,7 +7,7 @@ import {
   at,
   DIRS,
 } from './game.js';
-import { LEVELS } from './levels.js';
+import { LEVELS, TOTAL_LEVELS } from './levels.js';
 import { computeLayout, draw } from './render.js';
 import { attachInput } from './input.js';
 import { createAudio } from './audio.js';
@@ -25,9 +25,14 @@ const elWinSub = document.getElementById('win-sub');
 const elStars = document.getElementById('stars');
 const elFail = document.getElementById('fail');
 const elIntro = document.getElementById('intro');
+const elLevels = document.getElementById('levels');
+const elLevelGrid = document.getElementById('level-grid');
+const elLevelSummary = document.getElementById('level-summary');
 const btnIntroOk = document.getElementById('intro-ok');
 const btnHelp = document.getElementById('help');
 const btnSound = document.getElementById('sound');
+const btnLevels = document.getElementById('levels-btn');
+const btnLevelsClose = document.getElementById('levels-close');
 const btnUndo = document.getElementById('undo');
 const btnRestart = document.getElementById('restart');
 const btnNext = document.getElementById('next');
@@ -120,9 +125,10 @@ function renderStars(n) {
   spans.forEach((s, i) => s.classList.toggle('on', i < n));
 }
 
-function starsFor(n) {
-  if (n <= level.par) return 3;
-  if (n <= level.par + 2) return 2;
+function starsFor(lv, n) {
+  if (n == null) return 0;
+  if (n <= lv.par) return 3;
+  if (n <= lv.par + 2) return 2;
   return 1;
 }
 
@@ -131,9 +137,9 @@ function showWin() {
   drag = null;
   clearTimeout(idleTimer);
   idleTimer = 0;
-  const stars = starsFor(moves);
+  const stars = starsFor(level, moves);
   renderStars(stars);
-  elWinText.textContent = `用 ${moves} 步清空`;
+  elWinText.textContent = `用 ${moves} 步${level.goal === 'color' ? '清掉红色' : '清空'}`;
 
   const best = save.best[level.id];
   if (best == null || moves < best) save.best[level.id] = moves;
@@ -146,7 +152,7 @@ function showWin() {
   elWinSub.textContent =
     bestNow < moves ? `${parLine} 你的最好成绩：${bestNow} 步。` : parLine;
 
-  btnNext.textContent = levelIndex === LEVELS.length - 1 ? '回到第 1 关' : '下一关';
+  btnNext.textContent = levelIndex === LEVELS.length - 1 ? '选关' : '下一关';
   elWin.classList.remove('hidden');
   setHint(`还剩 ${Math.max(0, level.limit - moves)} 步，不过已经不需要了。`);
   audio.play('win');
@@ -183,6 +189,99 @@ function closeIntro() {
   } catch {
     /* ignore */
   }
+  audio.play('ui');
+}
+
+function isLevelUnlocked(index) {
+  const lv = LEVELS[index];
+  if (!lv) return false;
+  if (index === 0) return true;
+  if (lv.id === level.id) return true;
+  if (save.best[lv.id] != null) return true;
+  const prev = LEVELS[index - 1];
+  return !!prev && save.best[prev.id] != null;
+}
+
+function renderLevelGrid() {
+  elLevelGrid.textContent = '';
+  let total = 0;
+  for (let i = 1; i <= TOTAL_LEVELS; i++) {
+    const lv = LEVELS[i - 1];
+    const best = lv ? save.best[lv.id] : undefined;
+    const stars = lv ? starsFor(lv, best) : 0;
+    if (lv) total += stars;
+    const unlocked = !!lv && isLevelUnlocked(i - 1);
+    const isCurrent = !!lv && lv.id === level.id;
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `level-cell${unlocked ? '' : ' locked'}${isCurrent ? ' current' : ''}`;
+    btn.disabled = !unlocked;
+    if (lv) {
+      const stateText =
+        best != null ? `最好 ${best} 步，${stars} 星` : '未通关';
+      btn.setAttribute(
+        'aria-label',
+        `第 ${lv.id} 关 ${lv.name}，${stateText}${unlocked ? '' : '，未解锁'}`,
+      );
+      btn.title = unlocked
+        ? `第 ${lv.id} 关 · ${lv.name}`
+        : `第 ${lv.id} 关 · 未解锁`;
+    } else {
+      btn.setAttribute('aria-label', `第 ${i} 关，开发中`);
+      btn.title = '开发中';
+    }
+
+    const num = document.createElement('span');
+    num.className = 'num';
+    num.textContent = String(i);
+    btn.appendChild(num);
+
+    if (!unlocked) {
+      const lock = document.createElement('span');
+      lock.className = 'lock';
+      lock.textContent = '🔒';
+      lock.setAttribute('aria-hidden', 'true');
+      btn.appendChild(lock);
+    } else {
+      const starRow = document.createElement('span');
+      starRow.className = 'mini-stars';
+      starRow.setAttribute('aria-hidden', 'true');
+      for (let s = 0; s < 3; s++) {
+        const star = document.createElement('span');
+        star.textContent = '★';
+        if (s < stars) star.className = 'on';
+        starRow.appendChild(star);
+      }
+      btn.appendChild(starRow);
+      btn.addEventListener('click', () => selectLevel(i - 1));
+    }
+
+    elLevelGrid.appendChild(btn);
+  }
+
+  const b = document.createElement('b');
+  b.textContent = String(total);
+  elLevelSummary.textContent = '';
+  elLevelSummary.append('已获得 ', b, ` 颗星 · 已开放 ${LEVELS.length} / ${TOTAL_LEVELS} 关`);
+}
+
+function openLevels() {
+  renderLevelGrid();
+  elLevels.classList.remove('hidden');
+  btnLevelsClose.focus({ preventScroll: true });
+}
+
+function closeLevels() {
+  elLevels.classList.add('hidden');
+  btnLevels.focus({ preventScroll: true });
+  audio.play('ui');
+}
+
+function selectLevel(index) {
+  if (!isLevelUnlocked(index)) return;
+  loadLevel(index);
+  elLevels.classList.add('hidden');
   audio.play('ui');
 }
 
@@ -225,6 +324,7 @@ function loadLevel(index) {
   failed = false;
   elWin.classList.add('hidden');
   elFail.classList.add('hidden');
+  elLevels.classList.add('hidden');
   elLevel.textContent = `第 ${level.id} 关`;
   elName.textContent = level.name;
   document.title = `${level.name} · 撞个正着`;
@@ -353,7 +453,14 @@ attachInput(canvas, {
 
 btnUndo.addEventListener('click', undo);
 btnRestart.addEventListener('click', () => loadLevel(levelIndex));
-btnNext.addEventListener('click', () => loadLevel(levelIndex + 1));
+btnNext.addEventListener('click', () => {
+  if (levelIndex === LEVELS.length - 1) {
+    audio.play('ui');
+    openLevels();
+  } else {
+    loadLevel(levelIndex + 1);
+  }
+});
 btnAgain.addEventListener('click', () => loadLevel(levelIndex));
 btnFailUndo.addEventListener('click', undo);
 btnFailRestart.addEventListener('click', () => loadLevel(levelIndex));
@@ -362,13 +469,26 @@ btnHelp.addEventListener('click', () => {
   audio.play('ui');
   openIntro();
 });
+btnLevels.addEventListener('click', () => {
+  audio.play('ui');
+  openLevels();
+});
+btnLevelsClose.addEventListener('click', closeLevels);
+elLevels.addEventListener('click', (e) => {
+  if (e.target === elLevels) closeLevels();
+});
 btnSound.addEventListener('click', () => {
   audio.toggle();
   syncSound();
   if (!audio.isMuted()) audio.play('ui');
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !elIntro.classList.contains('hidden')) closeIntro();
+  if (e.key !== 'Escape') return;
+  if (!elLevels.classList.contains('hidden')) {
+    closeLevels();
+    return;
+  }
+  if (!elIntro.classList.contains('hidden')) closeIntro();
 });
 // 首次交互解锁 AudioContext（浏览器自动播放策略）
 window.addEventListener('pointerdown', () => audio.unlock(), { once: true });
@@ -424,6 +544,10 @@ window.__zgz = {
   audio,
   openIntro,
   closeIntro,
+  openLevels,
+  closeLevels,
+  renderLevelGrid,
+  isLevelUnlocked,
   save,
   // 手动渲染一帧：用于不可见窗口（rAF 被冻结）时截图/取色排查
   redraw(now = performance.now()) {

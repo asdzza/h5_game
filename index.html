@@ -19,6 +19,7 @@
         </div>
         <div class="hud-right">
           <span id="moves">0 / 6</span>
+          <button id="levels-btn" class="icon-btn" type="button" aria-label="关卡列表" title="关卡列表">▦</button>
           <button id="help" class="icon-btn" type="button" aria-label="查看玩法">?</button>
           <button id="sound" class="icon-btn" type="button" aria-label="关闭音效" aria-pressed="true">🔊</button>
         </div>
@@ -72,6 +73,16 @@
         <p>撤销一步就能接着走，步数会退回来。</p>
         <button id="fail-undo" type="button">撤销一步</button>
         <button id="fail-restart" class="ghost" type="button">重开本关</button>
+      </div>
+    </div>
+
+    <div id="levels" class="overlay hidden">
+      <div class="card level-card">
+        <p class="card-kicker">关卡</p>
+        <h2>选关</h2>
+        <p id="level-summary" class="level-summary"></p>
+        <div id="level-grid" class="level-grid"></div>
+        <button id="levels-close" class="ghost" type="button">继续当前关</button>
       </div>
     </div>
 
