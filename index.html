@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"
+    />
+    <meta name="theme-color" content="#0b1020" />
+    <title>撞个正着</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header id="hud">
+        <div class="hud-left">
+          <span id="level-label">第 1 关</span>
+          <strong id="level-name">碰一下</strong>
+        </div>
+        <div class="hud-right">
+          <span id="moves">0 / 6</span>
+          <button id="help" class="icon-btn" type="button" aria-label="查看玩法">?</button>
+          <button id="sound" class="icon-btn" type="button" aria-label="关闭音效" aria-pressed="true">🔊</button>
+        </div>
+      </header>
+
+      <main id="stage">
+        <canvas id="board" aria-label="游戏棋盘"></canvas>
+      </main>
+
+      <footer id="bottom">
+        <p id="hint">按住方块拖动，它会一直滑到撞上东西为止。</p>
+        <div id="actions">
+          <button id="undo" class="action-btn" type="button" disabled>撤销</button>
+          <button id="restart" class="action-btn" type="button">重开</button>
+        </div>
+      </footer>
+    </div>
+
+    <div id="intro" class="overlay hidden">
+      <div class="card">
+        <p class="card-kicker">玩法</p>
+        <h2>撞个正着</h2>
+        <ul class="rules">
+          <li>按住方块，朝一个方向拖。</li>
+          <li>松手后它会一直滑，直到撞上墙、边界或别的方块。</li>
+          <li>撞上<b>同色</b>方块，两块一起消失。</li>
+          <li>步数有限，用完还没清空就失败；点「撤销」会把步数退回来。</li>
+        </ul>
+        <p class="card-note">异色方块不会被推动，它们既是路障，也是下一对。</p>
+        <button id="intro-ok" type="button">我明白了！</button>
+      </div>
+    </div>
+
+    <div id="win" class="overlay hidden">
+      <div class="card">
+        <p class="card-kicker">清空</p>
+        <div id="stars" class="stars" aria-hidden="true">
+          <span>★</span><span>★</span><span>★</span>
+        </div>
+        <h2 id="win-text">用 2 步清空</h2>
+        <p id="win-sub">最少就是 2 步，漂亮。</p>
+        <button id="next" type="button">下一关</button>
+        <button id="again" class="ghost" type="button">再玩一次</button>
+      </div>
+    </div>
+
+    <div id="fail" class="overlay hidden">
+      <div class="card">
+        <p class="card-kicker">步数用完</p>
+        <h2>差一点</h2>
+        <p>撤销一步就能接着走，步数会退回来。</p>
+        <button id="fail-undo" type="button">撤销一步</button>
+        <button id="fail-restart" class="ghost" type="button">重开本关</button>
+      </div>
+    </div>
+
+    <script type="module" src="src/main.js"></script>
+  </body>
+</html>

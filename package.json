@@ -1,0 +1,12 @@
+{
+  "name": "zhuanggezhengzhao",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "《撞个正着》H5 滑块解谜",
+  "scripts": {
+    "dev": "node tools/serve.mjs",
+    "test": "node tools/test_rules.mjs",
+    "check": "node research/verify.mjs"
+  }
+}
