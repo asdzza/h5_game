@@ -341,7 +341,7 @@ function invalidHint(r, c, dir) {
   const [dr, dc] = DIRS[dir];
   const next = at(state, r + dr, c + dc);
   if (next > 0 && next !== self) {
-    return '异色方块不会被推动——先消掉挡路的那一对，或者绕开它。';
+    return '异色方块挡住去路，推不动——换个方向，或者先把它弄走。';
   }
   if (next === -1) return '前面是墙或边界，换个方向。';
   return '这个方向滑不动，换个方向试试。';

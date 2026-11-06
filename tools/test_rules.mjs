@@ -156,48 +156,65 @@ const solve = (lv, banned) => solveFrom(parse(lv.rows), lv, banned);
   const st = parse(lv.rows);
   assert.equal(lv.goal, 'color');
   assert.equal(lv.targetColor, 1);
-  assert.equal(countBlocks(st), 5);
+  assert.equal(countBlocks(st), 4);
 
-  // 三块蓝：怎么消都会剩一块，“清空全场”在这关根本不存在
+  // 2 红 + 2 蓝：蓝块正好是一对，所以“清空”是能做到的——但要 6 步，上限只有 5 步
   let blues = 0;
   for (const v of st.c) if (v === 2) blues++;
-  assert.equal(blues, 3, '第 4 关应有 3 块蓝，清场不可能');
+  assert.equal(blues, 2, '第 4 关应有 2 块蓝');
+  assert.equal(
+    solve({ ...lv, goal: 'clear' }),
+    6,
+    '清空全场要 6 步，超过上限 5——所以只能按“只清红”来打',
+  );
+  assert.ok(lv.limit < 6, '上限必须小于清场步数，否则玩家可以靠清场蒙过去');
 
-  // 右边的 A(3,5) 向左：被 (3,3) 的墙挡住，停在 (3,4)
-  const pushLeft = moveFrom(st, 3, 5, 'L');
-  assert.deepEqual(pushLeft, { r: 3, c: 5, d: 'L', res: 'move', tr: 3, tc: 4 });
+  // 左上角的 A(1,1) 开局一步也动不了：右边是蓝块、下面是墙
+  assert.equal(moveFrom(st, 1, 1, 'R'), null, 'A(1,1) 向右被蓝块堵死');
+  assert.equal(moveFrom(st, 1, 1, 'D'), null, 'A(1,1) 向下被墙堵死');
 
-  const s1 = applyMove(st, pushLeft);
-  // 再向上：一路滑到 (1,4)，与左上角的 A 同排
-  const pushUp = moveFrom(s1, 3, 4, 'U');
-  assert.deepEqual(pushUp, { r: 3, c: 4, d: 'U', res: 'move', tr: 1, tc: 4 });
+  // 首步必须是把蓝块推开：B(1,2) 向右一路滑到墙边 (1,5)
+  const pushBlue = moveFrom(st, 1, 2, 'R');
+  assert.deepEqual(pushBlue, { r: 1, c: 2, d: 'R', res: 'move', tr: 1, tc: 5 });
 
-  const s2 = applyMove(s1, pushUp);
-  const aPop = moveFrom(s2, 1, 1, 'R');
-  assert.deepEqual(aPop, { r: 1, c: 1, d: 'R', res: 'pop', br: 1, bc: 4 });
-  const s3 = applyMove(s2, aPop);
-  assert.equal(isGoal(s3, lv), true, '三步后红色应全部消失');
-  assert.ok(countBlocks(s3) > 0, '通关时蓝块还在');
-  assert.equal(solve(lv), 3);
+  const s1 = applyMove(st, pushBlue);
+  // 红块这才有路，而且正好停在蓝块前面（借它停车）
+  const aRight = moveFrom(s1, 1, 1, 'R');
+  assert.deepEqual(aRight, { r: 1, c: 1, d: 'R', res: 'move', tr: 1, tc: 4 });
 
-  // 唯一最优首步：右边那块 A 向左
+  const s2 = applyMove(s1, aRight);
+  // 再向下，被第二块蓝 B(4,4) 停住，正好与另一块红同排
+  const aDown = moveFrom(s2, 1, 4, 'D');
+  assert.deepEqual(aDown, { r: 1, c: 4, d: 'D', res: 'move', tr: 3, tc: 4 });
+
+  const s3 = applyMove(s2, aDown);
+  const aPop = moveFrom(s3, 3, 4, 'R');
+  assert.deepEqual(aPop, { r: 3, c: 4, d: 'R', res: 'pop', br: 3, bc: 5 });
+  const s4 = applyMove(s3, aPop);
+  assert.equal(isGoal(s4, lv), true, '四步后红色应全部消失');
+  assert.equal(countBlocks(s4), 2, '通关时两块蓝都还在');
+  assert.equal(solve(lv), 4);
+
+  // 唯一最优首步：推蓝块向右
   const optimal = legalMoves(st)
     .map((m) => ({ m, total: 1 + solveFrom(applyMove(st, m), lv) }))
-    .filter((x) => x.total === 3);
+    .filter((x) => x.total === 4);
   assert.equal(optimal.length, 1, '第 4 关应有且仅有 1 个最优首步');
-  assert.deepEqual(optimal[0].m, { r: 3, c: 5, d: 'L', res: 'move', tr: 3, tc: 4 });
+  assert.deepEqual(optimal[0].m, pushBlue);
 
-  // 诱惑步：先消一对蓝，白花一步 → 4 步（2 星）
-  const greedy = moveFrom(st, 4, 2, 'R');
-  assert.equal(greedy.res, 'pop');
-  assert.equal(
-    1 + solveFrom(applyMove(st, greedy), lv),
-    4,
-    '先消蓝应退化为 4 步',
-  );
+  // 诱惑步：把蓝块往下推（也是“推开它”，但位置不对）→ 5 步
+  const wrong = moveFrom(st, 1, 2, 'D');
+  assert.equal(1 + solveFrom(applyMove(st, wrong), lv), 5, '蓝块推错方向应退化为 5 步');
 
-  // 禁用关键步后仍能通关（4 步），只是少星
-  assert.equal(solve(lv, (m) => m.r === 3 && m.c === 5 && m.d === 'L'), 4);
+  // 禁掉所有“推蓝块 / 借蓝块停车”的走法后，这一关无解 —— 蓝块是解法本身
+  const usesBlue = (m, s) => {
+    if (m.res === 'pop') return false;
+    if (s.c[m.r * s.w + m.c] === 2) return true;
+    const dr = Math.sign(m.tr - m.r);
+    const dc = Math.sign(m.tc - m.c);
+    return s.c[(m.tr + dr) * s.w + (m.tc + dc)] === 2;
+  };
+  assert.equal(solve(lv, usesBlue), Infinity, '不碰蓝块就无解');
 }
 
 // ---- 5. 关卡参数：par 必须等于 BFS 最优，且 par < 上限 ----
@@ -255,6 +272,6 @@ for (const lv of RESEARCH_LEVELS) {
 
 console.log(
   `规则内核 OK：4 关 par = ${LEVELS.map((l) => l.par).join('/')}；` +
-    `第 2、3、4 关最优首步唯一；第 3 关不先推块 par 退化为 5、第 4 关先消蓝退化为 4 步；` +
+    `第 2、3、4 关最优首步唯一；第 3 关不先推块 par 退化为 5、第 4 关不碰蓝块直接无解；` +
     `与 research 引擎对拍 ${compared} 个状态一致。`,
 );
