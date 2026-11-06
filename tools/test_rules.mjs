@@ -46,56 +46,35 @@ function solveFrom(start, lv, banned) {
 
 const solve = (lv, banned) => solveFrom(parse(lv.rows), lv, banned);
 
-// ---- 1. 第 1 关的硬编码期望 ----
+// ---- 1. 第 1 关：拖动 + 同色消除 + 异色挡路（原第 1、2 关合并） ----
 {
   const lv = LEVELS[0];
   const st = parse(lv.rows);
   assert.equal(lv.id, 1);
   assert.equal(countBlocks(st), 4, '第 1 关应有 4 块');
-  assert.equal(legalMoves(st).length, 15, '第 1 关开局应有 15 个合法走法');
+  assert.equal(legalMoves(st).length, 10, '第 1 关开局应有 10 个合法走法');
 
-  const pop = moveFrom(st, 2, 2, 'R');
-  assert.deepEqual(pop, { r: 2, c: 2, d: 'R', res: 'pop', br: 2, bc: 4 });
-
-  assert.equal(moveFrom(st, 5, 3, 'D'), null, '贴底边向下应为无效操作');
-
-  const s1 = applyMove(st, pop);
-  assert.equal(countBlocks(s1), 2);
-  const s2 = applyMove(s1, moveFrom(s1, 4, 3, 'D'));
-  assert.equal(countBlocks(s2), 0);
-  assert.equal(isGoal(s2, lv), true, '两步后应通关');
-}
-
-// ---- 2. 第 2 关：异色挡路，先消挡路者 ----
-{
-  const lv = LEVELS[1];
-  const st = parse(lv.rows);
-  assert.equal(countBlocks(st), 4);
-
-  // A(1,1) 向右：撞到 B 只是停下，不会推动，也不会消
+  // A(1,1) 向右：被 B(1,3) 挡住，只滑一格，不推动也不消
   const blocked = moveFrom(st, 1, 1, 'R');
-  assert.equal(blocked.res, 'move');
-  assert.equal(blocked.tr, 1);
-  assert.equal(blocked.tc, 2);
+  assert.deepEqual(blocked, { r: 1, c: 1, d: 'R', res: 'move', tr: 1, tc: 2 });
 
-  // B(1,3) 向下：撞到 (5,3) 的同色 B，双消
+  // B(1,3) 向下：撞上同色 B(5,3)，双消
   const bPop = moveFrom(st, 1, 3, 'D');
-  assert.equal(bPop.res, 'pop');
-  assert.equal(bPop.br, 5);
-  assert.equal(bPop.bc, 3);
+  assert.deepEqual(bPop, { r: 1, c: 3, d: 'D', res: 'pop', br: 5, bc: 3 });
 
-  // 解法：先消 B，再让两个 A 对撞
+  // 解法：先消 B，两个 A 之间就通了
   const s1 = applyMove(st, bPop);
+  assert.equal(countBlocks(s1), 2);
   const aPop = moveFrom(s1, 1, 1, 'R');
-  assert.equal(aPop.res, 'pop');
+  assert.deepEqual(aPop, { r: 1, c: 1, d: 'R', res: 'pop', br: 1, bc: 5 });
   const s2 = applyMove(s1, aPop);
-  assert.equal(isGoal(s2, lv), true);
+  assert.equal(isGoal(s2, lv), true, '两步后应通关');
   assert.equal(solve(lv), 2);
 }
 
-// ---- 3. 第 3 关：墙也是刹车 ----
+// ---- 2. 第 2 关：墙也是刹车（原第 3 关前移） ----
 {
-  const lv = LEVELS[2];
+  const lv = LEVELS[1];
   const st = parse(lv.rows);
   assert.equal(countBlocks(st), 4);
 
@@ -116,7 +95,7 @@ const solve = (lv, banned) => solveFrom(parse(lv.rows), lv, banned);
     .map((m) => ({ m, total: 1 + solveFrom(applyMove(st, m), lv) }))
     .filter((x) => Number.isFinite(x.total));
   const optimal = firstMoves.filter((x) => x.total === 3);
-  assert.equal(optimal.length, 1, '第 3 关应有且仅有 1 个最优首步');
+  assert.equal(optimal.length, 1, '第 2 关应有且仅有 1 个最优首步');
   assert.deepEqual(
     optimal[0].m,
     { r: 5, c: 4, d: 'U', res: 'move', tr: 4, tc: 4 },
@@ -126,6 +105,59 @@ const solve = (lv, banned) => solveFrom(parse(lv.rows), lv, banned);
   // 禁用关键步后，最优解退化为 4 步
   const withoutKey = solve(lv, (m) => m.r === 5 && m.c === 4 && m.d === 'U');
   assert.equal(withoutKey, 4, '禁用“靠墙停车”后 par 应变成 4');
+}
+
+// ---- 3. 第 3 关：借它停车（异色方块也能当刹车） ----
+{
+  const lv = LEVELS[2];
+  const st = parse(lv.rows);
+  assert.equal(countBlocks(st), 4);
+
+  // 上方的墙把 A(3,4) 封在第三行：向上是无效操作
+  assert.equal(moveFrom(st, 3, 4, 'U'), null, 'A(3,4) 上方是墙，向上应为无效操作');
+
+  // A(1,2) 向下：撞到 B(4,2) 前停住，正好落在 (3,2)，与 A(3,4) 同行
+  const brake = moveFrom(st, 1, 2, 'D');
+  assert.deepEqual(brake, { r: 1, c: 2, d: 'D', res: 'move', tr: 3, tc: 2 });
+
+  const s1 = applyMove(st, brake);
+  const aPop = moveFrom(s1, 3, 2, 'R');
+  assert.deepEqual(aPop, { r: 3, c: 2, d: 'R', res: 'pop', br: 3, bc: 4 });
+  const s2 = applyMove(s1, aPop);
+  const bPop = moveFrom(s2, 4, 2, 'R');
+  assert.deepEqual(bPop, { r: 4, c: 2, d: 'R', res: 'pop', br: 4, bc: 4 });
+  const s3 = applyMove(s2, bPop);
+  assert.equal(isGoal(s3, lv), true, '三步后应通关');
+  assert.equal(solve(lv), 3);
+
+  // 只有 A(1,2) 向下能保持 3 步最优
+  const optimal = legalMoves(st)
+    .map((m) => ({ m, total: 1 + solveFrom(applyMove(st, m), lv) }))
+    .filter((x) => x.total === 3);
+  assert.equal(optimal.length, 1, '第 3 关应有且仅有 1 个最优首步');
+  assert.deepEqual(optimal[0].m, {
+    r: 1,
+    c: 2,
+    d: 'D',
+    res: 'move',
+    tr: 3,
+    tc: 2,
+  });
+
+  // 诱惑步：先消 B 会失去刹车，最优退化为 4 步（仍能通关，2 星）
+  const greedy = moveFrom(st, 4, 2, 'R');
+  assert.equal(greedy.res, 'pop');
+  assert.equal(
+    1 + solveFrom(applyMove(st, greedy), lv),
+    4,
+    '先消 B 应退化为 4 步',
+  );
+
+  // 禁用关键步后，最优解同样退化为 4 步
+  assert.equal(
+    solve(lv, (m) => m.r === 1 && m.c === 2 && m.d === 'D'),
+    4,
+  );
 }
 
 // ---- 4. 关卡参数：par 必须等于 BFS 最优，且 par < 上限 ----
@@ -173,5 +205,6 @@ for (const lv of RESEARCH_LEVELS) {
 
 console.log(
   `规则内核 OK：3 关 par = ${LEVELS.map((l) => l.par).join('/')}；` +
-    `第 3 关最优首步唯一；与 research 引擎对拍 ${compared} 个状态一致。`,
+    `第 2、3 关最优首步唯一；第 3 关先消 B 退化为 4 步；` +
+    `与 research 引擎对拍 ${compared} 个状态一致。`,
 );

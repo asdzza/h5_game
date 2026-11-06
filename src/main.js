@@ -37,7 +37,7 @@ const btnFailRestart = document.getElementById('fail-restart');
 
 const audio = createAudio();
 const INTRO_KEY = 'zgz.seenIntro.v2';
-const SAVE_KEY = 'zgz.save.v1';
+const SAVE_KEY = 'zgz.save.v2';
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
 
 function readSave() {
@@ -102,7 +102,7 @@ function updateUndo() {
 }
 
 function showNudge() {
-  if (nudged || won || failed) return;
+  if (nudged || won || failed || !level.nudge) return;
   nudged = true;
   setHint(level.nudge);
 }
