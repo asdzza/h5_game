@@ -1,5 +1,11 @@
 name: Deploy to GitHub Pages
 
+# ⚠️ 2026-11-07 起本仓库的 job 全部在"分配 runner"阶段失败，注解原文：
+#    "The job was not started because your account is locked due to a billing issue."
+#    账单解冻前这个工作流跑不起来。临时改用 `npm run deploy:pages`（推 gh-pages 分支），
+#    并在 Settings → Pages 里把 Source 切到 "Deploy from a branch → gh-pages / (root)"。
+#    账单恢复后可以把 Source 改回 "GitHub Actions"，本文件无需改动。
+
 on:
   push:
     branches: [main]

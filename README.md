@@ -232,9 +232,30 @@ git push
 
 当前线上地址：<https://asdzza.github.io/h5_game/>
 
+### 备用通道：Actions 挂了也能发（`npm run deploy:pages`）
+
+2026-11-07 起本仓库的 Actions 每次都在"分配 runner"前失败，注解原文是
+**"The job was not started because your account is locked due to a billing issue."**
+（`build` 2 秒结束、`runner` 为空、`steps: []`）。账单解冻前 Actions 一条都跑不了。
+
+备用方案不碰 Actions：把 `index.html + styles.css + src/` 打成一次提交，直接推到 `gh-pages` 分支。
+
+```bash
+npm run deploy:pages          # 构建 + 强制推送 gh-pages
+# 只想看看能不能推、不改远端：
+#   PowerShell: $env:DEPLOY_DRY='1'; npm run deploy:pages
+```
+
+首次使用需要把 **Settings → Pages → Source** 从 `GitHub Actions` 改成
+`Deploy from a branch` → 分支 `gh-pages`、目录 `/ (root)`，只需改一次。
+改完之后 `main` 上的 Actions 工作流就不再负责发布（它的 `deploy` 会显示 skipped，属正常）。
+
+> 两条通道不要同时开着：Pages 的 Source 只能选一个。Actions 恢复正常后，把 Source 改回
+> `GitHub Actions` 即可，`gh-pages` 分支留着不碍事。
+
 ### 备注
 
 - 页面全部用相对路径（`styles.css`、`src/main.js`），所以放在 `/仓库名/` 子路径下也能正常加载。
-- 不想用 Actions 也可以：Settings → Pages → Source 选 `Deploy from a branch`，分支 `main`、目录 `/ (root)`。缺点是 `docs/` 与 `research/` 也会被一起发布。
+- 不想用 Actions 也可以：Settings → Pages → Source 选 `Deploy from a branch`，分支 `gh-pages`、目录 `/ (root)`，再配合 `npm run deploy:pages`（见上一节）。直接用 `main / (root)` 也能跑，缺点是 `docs/` 与 `research/` 会被一起发布。
 - 本地预览仍然用 `npm run dev`（`file://` 打开会被 ES Module 的 CORS 拦住）。
 - 建议每次发版前跑一遍 `npm test`（CI 也会跑，失败会阻止发布）。
