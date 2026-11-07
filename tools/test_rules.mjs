@@ -217,6 +217,76 @@ const solve = (lv, banned) => solveFrom(parse(lv.rows), lv, banned);
   assert.equal(solve(lv, usesBlue), Infinity, '不碰蓝块就无解');
 }
 
+// ---- 4.5 第 5 关「红色两对」 ----
+{
+  const lv = LEVELS[4];
+  const st = parse(lv.rows);
+  assert.equal(lv.goal, 'color');
+  assert.equal(lv.targetColor, 1);
+  assert.equal(countBlocks(st), 6);
+
+  let reds = 0;
+  let blues = 0;
+  let greens = 0;
+  for (const v of st.c) {
+    if (v === 1) reds++;
+    else if (v === 2) blues++;
+    else if (v === 3) greens++;
+  }
+  assert.equal(reds, 4, '第 5 关应有 4 块红（两对）');
+  assert.equal(blues, 1, '蓝块只有 1 块，永远消不掉');
+  assert.equal(greens, 1, '绿块只有 1 块，永远消不掉');
+  assert.equal(
+    solve({ ...lv, goal: 'clear' }),
+    Infinity,
+    '蓝绿各一块，清空全场在这关物理上不可能',
+  );
+
+  // 开局没有任何一对是现成能消的：玩家得先决定“谁跟谁配”
+  const firsts = legalMoves(st);
+  assert.equal(firsts.filter((m) => m.res === 'pop').length, 0, '第 5 关开局不应有现成的配对');
+  assert.equal(solve(lv), 4);
+
+  // 竖着的一对：绿块 (3,1) 当刹车，把红停在 (3,2)，正好压住下面的红
+  const aLeft = moveFrom(st, 3, 3, 'L');
+  assert.deepEqual(aLeft, { r: 3, c: 3, d: 'L', res: 'move', tr: 3, tc: 2 });
+  const s1 = applyMove(st, aLeft);
+  const aDown = moveFrom(s1, 3, 2, 'D');
+  assert.deepEqual(aDown, { r: 3, c: 2, d: 'D', res: 'pop', br: 4, bc: 2 });
+  const s2 = applyMove(s1, aDown);
+
+  // 横着的一对：蓝块 (1,4) 当刹车，把红停在 (2,4)，与左边的红同排
+  const aUp = moveFrom(s2, 5, 4, 'U');
+  assert.deepEqual(aUp, { r: 5, c: 4, d: 'U', res: 'move', tr: 2, tc: 4 });
+  const s3 = applyMove(s2, aUp);
+  const aRight = moveFrom(s3, 2, 1, 'R');
+  assert.deepEqual(aRight, { r: 2, c: 1, d: 'R', res: 'pop', br: 2, bc: 4 });
+  const s4 = applyMove(s3, aRight);
+  assert.equal(isGoal(s4, lv), true, '四步后红色应全部消失');
+  assert.equal(countBlocks(s4), 2, '通关时蓝绿都还在');
+
+  // 两条最优路线，都是 4 步：先竖后横，或先横后竖（两对互不依赖，顺序可换）
+  const optimal = firsts
+    .map((m) => ({ m, total: 1 + solveFrom(applyMove(st, m), lv) }))
+    .filter((x) => x.total === 4);
+  assert.equal(optimal.length, 2, '第 5 关应恰好有 2 个最优首步');
+  assert.deepEqual(
+    optimal.map((x) => `${x.m.r},${x.m.c}${x.m.d}`).sort(),
+    ['3,3L', '5,4U'],
+  );
+
+  // 蓝、绿各当一次刹车：只禁掉其中一块，par 都会退化为 5
+  const usesColor = (color) => (m, s) => {
+    if (m.res === 'pop') return false;
+    if (s.c[m.r * s.w + m.c] === color) return true;
+    const dr = Math.sign(m.tr - m.r);
+    const dc = Math.sign(m.tc - m.c);
+    return s.c[(m.tr + dr) * s.w + (m.tc + dc)] === color;
+  };
+  assert.equal(solve(lv, usesColor(2)), 5, '不碰蓝块就退化为 5 步');
+  assert.equal(solve(lv, usesColor(3)), 5, '不碰绿块就退化为 5 步');
+}
+
 // ---- 5. 关卡参数：par 必须等于 BFS 最优，且 par < 上限 ----
 for (const lv of LEVELS) {
   const par = solve(lv);
@@ -271,7 +341,8 @@ for (const lv of RESEARCH_LEVELS) {
 }
 
 console.log(
-  `规则内核 OK：4 关 par = ${LEVELS.map((l) => l.par).join('/')}；` +
-    `第 2、3、4 关最优首步唯一；第 3 关不先推块 par 退化为 5、第 4 关不碰蓝块直接无解；` +
+  `规则内核 OK：5 关 par = ${LEVELS.map((l) => l.par).join('/')}；` +
+    `2/3/4 关最优首步唯一、第 5 关两条（先竖或先横）；` +
+    `第 3 关不先推块 par 退化为 5、第 4 关不碰蓝块直接无解、第 5 关不碰蓝或绿都退化为 5；` +
     `与 research 引擎对拍 ${compared} 个状态一致。`,
 );
