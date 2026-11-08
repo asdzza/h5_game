@@ -479,6 +479,103 @@ const solve = (lv, banned) => solveFrom(parse(lv.rows), lv, banned);
   assert.equal(withoutWall(3, 3), 6, '拿掉 (3,3) 的墙，A 停不到 (3,4)，par 应为 6');
 }
 
+// ---- 4.8 第 8 关「小结·三对」 ----
+{
+  const lv = LEVELS[7];
+  const st = parse(lv.rows);
+  assert.equal(lv.id, 8);
+  assert.equal(lv.goal, 'clear');
+  assert.equal(countBlocks(st), 6);
+
+  const counts = { 1: 0, 2: 0, 3: 0 };
+  for (const v of st.c) if (v > 0) counts[v]++;
+  assert.deepEqual(counts, { 1: 2, 2: 2, 3: 2 }, '第 8 关应是 A2 B2 C2');
+
+  // 两格内墙改成对角 (2,2)(4,4)：两对分别借这两格墙停在半路
+  const walls = [];
+  for (let r = 1; r <= 5; r++)
+    for (let c = 1; c <= 5; c++) if (at(st, r, c) === -1) walls.push(`${r},${c}`);
+  assert.deepEqual(walls, ['2,2', '4,4'], '第 8 关应只有两格对角内墙');
+
+  assert.equal(solve(lv), 6);
+
+  const firsts = legalMoves(st);
+  assert.equal(firsts.length, 13, '第 8 关开局应有 13 个合法走法');
+  assert.equal(firsts.filter((m) => m.res === 'pop').length, 0, '开局没有现成的配对');
+
+  // 强制顺序：C 的停车位要借 A；B 挡住 A 的启动路线；C 又挡住 B 的下落路线
+  assert.equal(moveFrom(st, 1, 3, 'D'), null, 'C 还压在 (2,3) 时，B 下不去');
+  assert.equal(moveFrom(st, 5, 2, 'U'), null, 'B 还挡在 (4,2) 时，A 上不去');
+
+  // 第三对第一次借"别的方块"停车：C 往下被 A 停在 (2,4)，再和另一块 C 对撞
+  const cDown = moveFrom(st, 1, 4, 'D');
+  assert.deepEqual(cDown, { r: 1, c: 4, d: 'D', res: 'move', tr: 2, tc: 4 });
+  assert.equal(at(applyMove(st, cDown), 3, 4), 1, '把 C 停在 (2,4) 的刹车，是之后还要消掉的 A');
+  const s1 = applyMove(st, cDown);
+
+  const cPop = moveFrom(s1, 2, 3, 'R');
+  assert.deepEqual(cPop, { r: 2, c: 3, d: 'R', res: 'pop', br: 2, bc: 4 });
+  const s2 = applyMove(s1, cPop);
+
+  // B 借 (4,4) 的墙停在 (4,3)，再让顶上的 B 落下来
+  const bRight = moveFrom(s2, 4, 2, 'R');
+  assert.deepEqual(bRight, { r: 4, c: 2, d: 'R', res: 'move', tr: 4, tc: 3 });
+  const s3 = applyMove(s2, bRight);
+
+  const bDown = moveFrom(s3, 1, 3, 'D');
+  assert.deepEqual(bDown, { r: 1, c: 3, d: 'D', res: 'pop', br: 4, bc: 3 });
+  const s4 = applyMove(s3, bDown);
+
+  // A 借 (2,2) 的墙停在 (3,2)——注意停的是墙的"下面"一格，不是墙旁边
+  const aUp = moveFrom(s4, 5, 2, 'U');
+  assert.deepEqual(aUp, { r: 5, c: 2, d: 'U', res: 'move', tr: 3, tc: 2 });
+  const s5 = applyMove(s4, aUp);
+
+  const aRight = moveFrom(s5, 3, 2, 'R');
+  assert.deepEqual(aRight, { r: 3, c: 2, d: 'R', res: 'pop', br: 3, bc: 4 });
+  const s6 = applyMove(s5, aRight);
+  assert.equal(isGoal(s6, lv), true, '六步后应清场');
+  assert.equal(countBlocks(s6), 0);
+
+  // 借来的 A 如果先被消掉，C 就失去停车位——这条诱惑路线要 8 步（仍在上限内，掉一颗星）
+  const aFirstTotals = ['U', 'D', 'L', 'R'].map((d) => {
+    const m = moveFrom(st, 3, 4, d);
+    return m ? 1 + solveFrom(applyMove(st, m), lv) : Infinity;
+  });
+  assert.equal(Math.min(...aFirstTotals), 8, '先动 A(3,4) 会拆掉 C 的停车位，代价 +2');
+
+  // 另一条最优开局：先让 B 借墙停好，再回头做 C 那对
+  const bFirst = moveFrom(st, 4, 2, 'R');
+  assert.equal(1 + solveFrom(applyMove(st, bFirst), lv), 6, '先动 B 也应该是 6 步');
+
+  const totals = firsts.map((m) => ({ m, total: 1 + solveFrom(applyMove(st, m), lv) }));
+  const optimal = totals.filter((x) => x.total === 6);
+  assert.equal(optimal.length, 2, '第 8 关应恰好有 2 个最优首步');
+  assert.deepEqual(
+    optimal.map((x) => `${x.m.r},${x.m.c}${x.m.d}`).sort(),
+    ['1,4D', '4,2R'],
+  );
+
+  // 13 个首步全部还能在上限内通关；走错至少多花 1 步
+  for (const x of totals) {
+    assert.ok(
+      Number.isFinite(x.total) && x.total <= lv.limit,
+      `首步 ${x.m.r},${x.m.c}${x.m.d} 之后仍应能在 ${lv.limit} 步内通关`,
+    );
+  }
+  assert.equal(Math.min(...totals.filter((x) => x.total !== 6).map((x) => x.total)), 7);
+
+  // 两格对角墙都是承重的：拿掉任意一格，par 都退化为 7
+  const withoutWall = (wr, wc) => {
+    const rows = lv.rows.map((row, i) =>
+      i === wr ? row.slice(0, wc) + '.' + row.slice(wc + 1) : row,
+    );
+    return solve({ ...lv, rows });
+  };
+  assert.equal(withoutWall(2, 2), 7, '拿掉 (2,2) 的墙，A 停不到 (3,2)，par 应为 7');
+  assert.equal(withoutWall(4, 4), 7, '拿掉 (4,4) 的墙，B 停不到 (4,3)，par 应为 7');
+}
+
 // ---- 5. 关卡参数：par 必须等于 BFS 最优，且 par < 上限 ----
 for (const lv of LEVELS) {
   const par = solve(lv);
@@ -533,10 +630,11 @@ for (const lv of RESEARCH_LEVELS) {
 }
 
 console.log(
-  `规则内核 OK：7 关 par = ${LEVELS.map((l) => l.par).join('/')}；` +
-    `2/3/4 关最优首步唯一、第 5 关两条（先竖或先横）、第 6 关两条（先 C 或先 A）、第 7 关两条（先 B 或先 A）；` +
+  `规则内核 OK：8 关 par = ${LEVELS.map((l) => l.par).join('/')}；` +
+    `2/3/4 关最优首步唯一、第 5 关两条（先竖或先横）、第 6 关两条（先 C 或先 A）、第 7 关两条（先 B 或先 A）、第 8 关两条（先 C 借 A 停车或先 B 借墙停车）；` +
     `第 3 关不先推块 par 退化为 5、第 4 关不碰蓝块直接无解、第 5 关不碰蓝或绿都退化为 5；` +
     `第 6 关 13 个首步全部仍能在 10 步内通关，先动右上 B 退化为 8；` +
     `第 7 关 13 个首步全部仍能在 8 步内通关，拿掉任意一格墙 par 都退化为 6；` +
+    `第 8 关 13 个首步全部仍能在 9 步内通关，先动 A(3,4) 会拆掉 C 的停车位、退化为 8，拿掉任一格墙 par 都退化为 7；` +
     `与 research 引擎对拍 ${compared} 个状态一致。`,
 );
