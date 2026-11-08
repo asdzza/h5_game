@@ -386,6 +386,99 @@ const solve = (lv, banned) => solveFrom(parse(lv.rows), lv, banned);
   assert.equal(1 + solveFrom(applyMove(st, bFirst), lv), 8, '先动 B 会丢掉 A 的停车位');
 }
 
+// ---- 4.7 第 7 关「借墙停车」 ----
+{
+  const lv = LEVELS[6];
+  const st = parse(lv.rows);
+  assert.equal(lv.id, 7);
+  assert.equal(lv.goal, 'clear');
+  assert.equal(countBlocks(st), 6);
+
+  // 三色各两块
+  const counts = { 1: 0, 2: 0, 3: 0 };
+  for (const v of st.c) if (v > 0) counts[v]++;
+  assert.deepEqual(counts, { 1: 2, 2: 2, 3: 2 }, '第 7 关应是 A2 B2 C2');
+
+  // 两格内墙，横在第三行 (3,2)(3,3)——不在边框，方块会停在棋盘半路
+  const walls = [];
+  for (let r = 1; r <= 5; r++)
+    for (let c = 1; c <= 5; c++) if (at(st, r, c) === -1) walls.push(`${r},${c}`);
+  assert.deepEqual(walls, ['3,2', '3,3'], '第 7 关应只有两格内墙，且横在第三行');
+
+  assert.equal(solve(lv), 5);
+
+  const firsts = legalMoves(st);
+  assert.equal(firsts.length, 13, '第 7 关开局应有 13 个合法走法');
+  assert.equal(firsts.filter((m) => m.res === 'pop').length, 0, '开局没有现成的配对');
+
+  // 顺序链：B 借 (3,2) 那格墙停在 (2,2) → 消掉 (2,4) 的 B，给 A 让出第 4 列
+  //        → A 借 (3,3) 那格墙停在 (3,4) → 消掉后给 C 让出第 5 列 → C 才能到底
+  assert.equal(moveFrom(st, 1, 4, 'D'), null, 'B 没消掉之前，A 被 (2,4) 的 B 顶住，下不去');
+
+  const cFirst = moveFrom(st, 1, 5, 'D');
+  assert.deepEqual(
+    cFirst,
+    { r: 1, c: 5, d: 'D', res: 'move', tr: 2, tc: 5 },
+    'A 还挡在 (3,5) 时，C 只能滑到 (2,5)',
+  );
+
+  const bDown = moveFrom(st, 1, 2, 'D');
+  assert.deepEqual(bDown, { r: 1, c: 2, d: 'D', res: 'move', tr: 2, tc: 2 });
+  const s1 = applyMove(st, bDown);
+
+  const bRight = moveFrom(s1, 2, 2, 'R');
+  assert.deepEqual(bRight, { r: 2, c: 2, d: 'R', res: 'pop', br: 2, bc: 4 });
+  const s2 = applyMove(s1, bRight);
+
+  // B 消掉后第 4 列空了，但 A 还得先借墙停在 (3,4)
+  const aLeft = moveFrom(s2, 3, 5, 'L');
+  assert.deepEqual(aLeft, { r: 3, c: 5, d: 'L', res: 'move', tr: 3, tc: 4 });
+  const s3 = applyMove(s2, aLeft);
+
+  const aDown = moveFrom(s3, 1, 4, 'D');
+  assert.deepEqual(aDown, { r: 1, c: 4, d: 'D', res: 'pop', br: 3, bc: 4 });
+  const s4 = applyMove(s3, aDown);
+
+  // A 消掉后第 5 列才通，C 从 (1,5) 落到 (5,5)
+  const cDown = moveFrom(s4, 1, 5, 'D');
+  assert.deepEqual(cDown, { r: 1, c: 5, d: 'D', res: 'pop', br: 5, bc: 5 });
+  const s5 = applyMove(s4, cDown);
+  assert.equal(isGoal(s5, lv), true, '五步后应清场');
+  assert.equal(countBlocks(s5), 0);
+
+  // 另一条最优开局：先让 A 借 (3,3) 停到 (3,4)，再回头做 B 那对
+  const aFirst = moveFrom(st, 3, 5, 'L');
+  assert.deepEqual(aFirst, { r: 3, c: 5, d: 'L', res: 'move', tr: 3, tc: 4 });
+  assert.equal(1 + solveFrom(applyMove(st, aFirst), lv), 5, '先动 A 也应该是 5 步');
+
+  const totals = firsts.map((m) => ({ m, total: 1 + solveFrom(applyMove(st, m), lv) }));
+  const optimal = totals.filter((x) => x.total === 5);
+  assert.equal(optimal.length, 2, '第 7 关应恰好有 2 个最优首步');
+  assert.deepEqual(
+    optimal.map((x) => `${x.m.r},${x.m.c}${x.m.d}`).sort(),
+    ['1,2D', '3,5L'],
+  );
+
+  // 13 个首步全部还能在上限内通关；走错至少多花 1 步
+  for (const x of totals) {
+    assert.ok(
+      Number.isFinite(x.total) && x.total <= lv.limit,
+      `首步 ${x.m.r},${x.m.c}${x.m.d} 之后仍应能在 ${lv.limit} 步内通关`,
+    );
+  }
+  assert.equal(Math.min(...totals.filter((x) => x.total !== 5).map((x) => x.total)), 6);
+
+  // 两格墙都是承重的：拿掉任意一格，停车位没了，par 退化为 6
+  const withoutWall = (wr, wc) => {
+    const rows = lv.rows.map((row, i) =>
+      i === wr ? row.slice(0, wc) + '.' + row.slice(wc + 1) : row,
+    );
+    return solve({ ...lv, rows });
+  };
+  assert.equal(withoutWall(3, 2), 6, '拿掉 (3,2) 的墙，B 停不到 (2,2)，par 应为 6');
+  assert.equal(withoutWall(3, 3), 6, '拿掉 (3,3) 的墙，A 停不到 (3,4)，par 应为 6');
+}
+
 // ---- 5. 关卡参数：par 必须等于 BFS 最优，且 par < 上限 ----
 for (const lv of LEVELS) {
   const par = solve(lv);
@@ -440,9 +533,10 @@ for (const lv of RESEARCH_LEVELS) {
 }
 
 console.log(
-  `规则内核 OK：6 关 par = ${LEVELS.map((l) => l.par).join('/')}；` +
-    `2/3/4 关最优首步唯一、第 5 关两条（先竖或先横）、第 6 关两条（先 C 或先 A）；` +
+  `规则内核 OK：7 关 par = ${LEVELS.map((l) => l.par).join('/')}；` +
+    `2/3/4 关最优首步唯一、第 5 关两条（先竖或先横）、第 6 关两条（先 C 或先 A）、第 7 关两条（先 B 或先 A）；` +
     `第 3 关不先推块 par 退化为 5、第 4 关不碰蓝块直接无解、第 5 关不碰蓝或绿都退化为 5；` +
     `第 6 关 13 个首步全部仍能在 10 步内通关，先动右上 B 退化为 8；` +
+    `第 7 关 13 个首步全部仍能在 8 步内通关，拿掉任意一格墙 par 都退化为 6；` +
     `与 research 引擎对拍 ${compared} 个状态一致。`,
 );

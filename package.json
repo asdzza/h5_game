@@ -8,6 +8,7 @@
     "dev": "node tools/serve.mjs",
     "test": "node tools/test_rules.mjs",
     "verify": "node tools/verify.mjs",
+    "gen": "node tools/gen.mjs",
     "deploy:pages": "node tools/deploy-pages.mjs",
     "check": "node research/verify.mjs"
   }
