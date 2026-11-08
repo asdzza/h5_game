@@ -916,6 +916,12 @@ for (const lv of LEVELS) {
   assert.ok(lv.par <= lv.limit, `第 ${lv.id} 关 par 不应超过步数上限`);
   assert.ok(lv.limit - lv.par >= 1, `第 ${lv.id} 关需要留出容错步数`);
 
+  // 方块只有颜色、没有字母：教学与提示文案不能出现 A–E 这种颜色代号
+  assert.ok(
+    !/[A-E]/.test(`${lv.teach}${lv.nudge}`),
+    `第 ${lv.id} 关的 teach/nudge 不能出现颜色代号 A–E，应写成"红/蓝/绿/黄/紫"`,
+  );
+
   const st0 = parse(lv.rows);
   const total = countBlocks(st0);
   assert.ok(total >= 4 && total <= 12, `第 ${lv.id} 关方块数应在 4–12，实际 ${total}`);

@@ -34,6 +34,7 @@ const btnSound = document.getElementById('sound');
 const btnLevels = document.getElementById('levels-btn');
 const btnLevelsClose = document.getElementById('levels-close');
 const btnUndo = document.getElementById('undo');
+const btnHint = document.getElementById('hint-btn');
 const btnRestart = document.getElementById('restart');
 const btnNext = document.getElementById('next');
 const btnAgain = document.getElementById('again');
@@ -74,6 +75,7 @@ let layout = computeLayout(320, 320, state.w, state.h);
 let hintTimer = 0;
 let idleTimer = 0;
 let pops = 0;
+let dry = 0;
 let nudged = false;
 
 function persist() {
@@ -110,14 +112,19 @@ function showNudge() {
   if (nudged || won || failed || !level.nudge) return;
   nudged = true;
   setHint(level.nudge);
+  updateHintButton();
 }
 
-// 卡住时给一句更具体的提示：15 秒无操作，或连续 3 步都没消掉任何东西。
+function updateHintButton() {
+  btnHint.disabled = nudged || !level.nudge;
+}
+
+// 卡住时给一句更具体的提示：10 秒无操作，或连续 3 步都没消掉任何东西。
 function scheduleNudge() {
   clearTimeout(idleTimer);
   idleTimer = 0;
   if (!level.nudge || nudged) return;
-  idleTimer = setTimeout(showNudge, 15000);
+  idleTimer = setTimeout(showNudge, 10000);
 }
 
 function renderStars(n) {
@@ -315,6 +322,7 @@ function loadLevel(index) {
   moves = 0;
   history = [];
   pops = 0;
+  dry = 0;
   nudged = false;
   cancelAnim();
   clearTimeout(idleTimer);
@@ -331,6 +339,7 @@ function loadLevel(index) {
   setHint(level.teach);
   updateHud();
   updateUndo();
+  updateHintButton();
   resize();
   persist();
   scheduleNudge();
@@ -358,7 +367,7 @@ function commit({ r, c, dir }) {
     return;
   }
 
-  history.push({ state, moves, pops });
+  history.push({ state, moves, pops, dry });
   if (history.length > 300) history.shift();
 
   const before = state;
@@ -366,11 +375,12 @@ function commit({ r, c, dir }) {
   state = applyMove(state, m);
   moves++;
   if (m.res === 'pop') pops++;
+  dry = m.res === 'pop' ? 0 : dry + 1;
   updateHud();
   updateUndo();
   setHint(level.teach);
   audio.play(m.res === 'pop' ? 'pop' : 'slide');
-  if (pops === 0 && moves >= 3) showNudge();
+  if (dry >= 3) showNudge();
   else scheduleNudge();
 
   const dist = moveDistance(m);
@@ -419,6 +429,7 @@ function undo() {
   state = prev.state;
   moves = prev.moves;
   pops = prev.pops;
+  dry = prev.dry ?? 0;
   if (failed) {
     failed = false;
     elFail.classList.add('hidden');
@@ -452,6 +463,10 @@ attachInput(canvas, {
 });
 
 btnUndo.addEventListener('click', undo);
+btnHint.addEventListener('click', () => {
+  audio.play('ui');
+  showNudge();
+});
 btnRestart.addEventListener('click', () => loadLevel(levelIndex));
 btnNext.addEventListener('click', () => {
   if (levelIndex === LEVELS.length - 1) {
