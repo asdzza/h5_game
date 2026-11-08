@@ -7,6 +7,7 @@ import {
   applyMove,
   isGoal,
   countBlocks,
+  at,
 } from '../src/game.js';
 import { LEVELS } from '../src/levels.js';
 import { parse as rParse, genA, applyA, countBlocks as rCount } from '../research/engine.mjs';
@@ -237,9 +238,14 @@ const solve = (lv, banned) => solveFrom(parse(lv.rows), lv, banned);
   assert.equal(blues, 1, '蓝块只有 1 块，永远消不掉');
   assert.equal(greens, 1, '绿块只有 1 块，永远消不掉');
   assert.equal(
-    solve({ ...lv, goal: 'clear' }),
-    Infinity,
-    '蓝绿各一块，清空全场在这关物理上不可能',
+    blues % 2,
+    1,
+    '蓝块只有 1 块（奇数）：消除永远同色成对，清场在数学上不可能',
+  );
+  assert.equal(
+    greens % 2,
+    1,
+    '绿块只有 1 块（奇数）：消除永远同色成对，清场在数学上不可能',
   );
 
   // 开局没有任何一对是现成能消的：玩家得先决定“谁跟谁配”
@@ -285,6 +291,99 @@ const solve = (lv, banned) => solveFrom(parse(lv.rows), lv, banned);
   };
   assert.equal(solve(lv, usesColor(2)), 5, '不碰蓝块就退化为 5 步');
   assert.equal(solve(lv, usesColor(3)), 5, '不碰绿块就退化为 5 步');
+}
+
+// ---- 4.6 第 6 关「双通道」 ----
+{
+  const lv = LEVELS[5];
+  const st = parse(lv.rows);
+  assert.equal(lv.id, 6);
+  assert.equal(lv.goal, 'clear');
+  assert.equal(countBlocks(st), 6);
+
+  // 结构：中间一列 3 格墙 (2,3)(3,3)(4,3)，只在第 1 行和第 5 行留出口
+  let walls = 0;
+  for (let r = 1; r <= 5; r++)
+    for (let c = 1; c <= 5; c++) if (at(st, r, c) === -1) walls++;
+  assert.equal(walls, 3, '第 6 关应有 3 格内墙（一列隔断）');
+  assert.equal(at(st, 1, 3), 0, '第 1 行必须留出上通道');
+  assert.equal(at(st, 5, 3), 0, '第 5 行必须留出下通道');
+  assert.equal(at(st, 3, 3), -1, '第 3 行必须有墙，否则两井在中段就通了');
+
+  // 三色各两块，而且每种颜色都一块在左井、一块在右井——每一对都必须跨井
+  const sides = { 1: [0, 0], 2: [0, 0], 3: [0, 0] };
+  for (let r = 1; r <= 5; r++)
+    for (let c = 1; c <= 5; c++) {
+      const v = at(st, r, c);
+      if (v > 0) sides[v][c < 3 ? 0 : 1]++;
+    }
+  for (const color of [1, 2, 3]) {
+    assert.deepEqual(sides[color], [1, 1], `颜色 ${color} 应左右各一块（必须跨井配对）`);
+  }
+
+  assert.equal(solve(lv), 6);
+
+  const firsts = legalMoves(st);
+  assert.equal(firsts.length, 13, '第 6 关开局应有 13 个合法走法');
+  assert.equal(firsts.filter((m) => m.res === 'pop').length, 0, '开局没有现成的配对');
+
+  // 下通道：C(1,2) 顺着左井落到最下面，最后再从下通道横过去和另一块 C 会合
+  const cDown = moveFrom(st, 1, 2, 'D');
+  assert.deepEqual(cDown, { r: 1, c: 2, d: 'D', res: 'move', tr: 5, tc: 2 });
+  const s1 = applyMove(st, cDown);
+
+  // 上通道：A(1,1) 穿过 (1,3) 的缺口，被右井的 B(1,5) 停在 (1,4)
+  const aRight = moveFrom(s1, 1, 1, 'R');
+  assert.deepEqual(aRight, { r: 1, c: 1, d: 'R', res: 'move', tr: 1, tc: 4 });
+  const s2 = applyMove(s1, aRight);
+  const aDown = moveFrom(s2, 1, 4, 'D');
+  assert.deepEqual(aDown, { r: 1, c: 4, d: 'D', res: 'pop', br: 3, bc: 4 });
+  const s3 = applyMove(s2, aDown);
+
+  // A 消掉之后，B 才贴得上边界滑到 (1,1)——这就是“顺序耦合”
+  const bLeft = moveFrom(s3, 1, 5, 'L');
+  assert.deepEqual(bLeft, { r: 1, c: 5, d: 'L', res: 'move', tr: 1, tc: 1 });
+  const s4 = applyMove(s3, bLeft);
+  const bDown = moveFrom(s4, 1, 1, 'D');
+  assert.deepEqual(bDown, { r: 1, c: 1, d: 'D', res: 'pop', br: 3, bc: 1 });
+  const s5 = applyMove(s4, bDown);
+
+  // 最后从下通道收掉 C 这一对
+  const cRight = moveFrom(s5, 5, 2, 'R');
+  assert.deepEqual(cRight, { r: 5, c: 2, d: 'R', res: 'pop', br: 5, bc: 5 });
+  const s6 = applyMove(s5, cRight);
+  assert.equal(isGoal(s6, lv), true, '六步后应清场');
+  assert.equal(countBlocks(s6), 0);
+
+  // 另一条最优开局：先把 A(3,4) 提到 (1,4)，再让 A(1,1) 横过来撞它
+  const aUp = moveFrom(st, 3, 4, 'U');
+  assert.deepEqual(aUp, { r: 3, c: 4, d: 'U', res: 'move', tr: 1, tc: 4 });
+  assert.equal(1 + solveFrom(applyMove(st, aUp), lv), 6, '先动 A 也应该是 6 步');
+
+  const totals = firsts.map((m) => ({
+    m,
+    total: 1 + solveFrom(applyMove(st, m), lv),
+  }));
+  const optimal = totals.filter((x) => x.total === 6);
+  assert.equal(optimal.length, 2, '第 6 关应恰好有 2 个最优首步');
+  assert.deepEqual(
+    optimal.map((x) => `${x.m.r},${x.m.c}${x.m.d}`).sort(),
+    ['1,2D', '3,4U'],
+  );
+
+  // 13 个首步全部还能在上限内通关：走错只掉星，不会一步走进死路
+  for (const x of totals) {
+    assert.ok(
+      Number.isFinite(x.total) && x.total <= lv.limit,
+      `首步 ${x.m.r},${x.m.c}${x.m.d} 之后仍应能在 ${lv.limit} 步内通关`,
+    );
+  }
+  assert.equal(Math.min(...totals.filter((x) => x.total !== 6).map((x) => x.total)), 7);
+
+  // 诱惑：右上角的 B 看起来最该先动，但它一动，A 的停车位就没了 → 8 步
+  const bFirst = moveFrom(st, 1, 5, 'L');
+  assert.deepEqual(bFirst, { r: 1, c: 5, d: 'L', res: 'move', tr: 1, tc: 3 });
+  assert.equal(1 + solveFrom(applyMove(st, bFirst), lv), 8, '先动 B 会丢掉 A 的停车位');
 }
 
 // ---- 5. 关卡参数：par 必须等于 BFS 最优，且 par < 上限 ----
@@ -341,8 +440,9 @@ for (const lv of RESEARCH_LEVELS) {
 }
 
 console.log(
-  `规则内核 OK：5 关 par = ${LEVELS.map((l) => l.par).join('/')}；` +
-    `2/3/4 关最优首步唯一、第 5 关两条（先竖或先横）；` +
+  `规则内核 OK：6 关 par = ${LEVELS.map((l) => l.par).join('/')}；` +
+    `2/3/4 关最优首步唯一、第 5 关两条（先竖或先横）、第 6 关两条（先 C 或先 A）；` +
     `第 3 关不先推块 par 退化为 5、第 4 关不碰蓝块直接无解、第 5 关不碰蓝或绿都退化为 5；` +
+    `第 6 关 13 个首步全部仍能在 10 步内通关，先动右上 B 退化为 8；` +
     `与 research 引擎对拍 ${compared} 个状态一致。`,
 );
