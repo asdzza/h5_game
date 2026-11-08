@@ -12,6 +12,7 @@ import {
 import { LEVELS } from '../src/levels.js';
 import { parse as rParse, genA, applyA, countBlocks as rCount } from '../research/engine.mjs';
 import { LEVELS as RESEARCH_LEVELS } from '../research/levels_seed.mjs';
+import { aStar } from '../research/solver_fast.mjs';
 
 const sig = (m) =>
   m.res === 'pop'
@@ -46,6 +47,17 @@ function solveFrom(start, lv, banned) {
 }
 
 const solve = (lv, banned) => solveFrom(parse(lv.rows), lv, banned);
+
+// 9 关起块数变多，par 用已校准的 A* 求；具体解法仍在下面对 src/game.js 逐步回放。
+const astarPar = (lv) => {
+  const r = aStar(rParse(lv.rows), 'A', 800000, lv.goal === 'color' ? { targetColor: lv.targetColor } : {});
+  return r ? r.len : Infinity;
+};
+const astarTotal = (lv, m) => {
+  const r = aStar(applyA(rParse(lv.rows), m), 'A', 800000, lv.goal === 'color' ? { targetColor: lv.targetColor } : {});
+  return r ? 1 + r.len : Infinity;
+};
+const solveLevel = (lv) => (lv.id <= 8 ? solve(lv) : astarPar(lv));
 
 // ---- 1. 第 1 关：拖动 + 同色消除 + 异色挡路（原第 1、2 关合并） ----
 {
@@ -576,9 +588,330 @@ const solve = (lv, banned) => solveFrom(parse(lv.rows), lv, banned);
   assert.equal(withoutWall(4, 4), 7, '拿掉 (4,4) 的墙，B 停不到 (4,3)，par 应为 7');
 }
 
-// ---- 5. 关卡参数：par 必须等于 BFS 最优，且 par < 上限 ----
+// ---- 4.9 第 9 关「缺口」 ----
+{
+  const lv = LEVELS[8];
+  const st = parse(lv.rows);
+  assert.equal(lv.id, 9);
+  assert.equal(lv.goal, 'clear');
+  assert.equal(countBlocks(st), 8);
+
+  const counts = { 1: 0, 2: 0, 3: 0, 4: 0 };
+  for (const v of st.c) if (v > 0) counts[v]++;
+  assert.deepEqual(counts, { 1: 2, 2: 2, 3: 2, 4: 2 }, '第 9 关应是 A2 B2 C2 D2');
+
+  // 两格墙竖在第 2 列，只留 (2,2) 一个缺口
+  const walls = [];
+  for (let r = 1; r <= 5; r++)
+    for (let c = 1; c <= 5; c++) if (at(st, r, c) === -1) walls.push(`${r},${c}`);
+  assert.deepEqual(walls, ['1,2', '3,2'], '第 9 关应只有 (1,2)(3,2) 两格内墙');
+  assert.ok(at(st, 2, 2) > 0, '缺口 (2,2) 开局被 B 占着');
+
+  // 墙把第 3 行切断：C(3,1) 不能直接往右
+  assert.equal(moveFrom(st, 3, 1, 'R'), null, 'C(3,1) 被 (3,2) 的墙挡住，只能往下绕');
+
+  assert.equal(astarPar(lv), 7);
+
+  const firsts = legalMoves(st);
+  assert.equal(firsts.length, 16, '第 9 关开局应有 16 个合法走法');
+  assert.equal(firsts.filter((m) => m.res === 'pop').length, 0, '开局没有现成的配对');
+
+  // 解法：右边的 C 借 A 停在 (4,4)，再横到左列；A 消掉后 B 从缺口穿出；
+  // 左列的 C、D 依次下落会合
+  const cDown = moveFrom(st, 3, 4, 'D');
+  assert.deepEqual(cDown, { r: 3, c: 4, d: 'D', res: 'move', tr: 4, tc: 4 });
+  assert.equal(at(applyMove(st, cDown), 5, 4), 1, '把 C 停在 (4,4) 的刹车是之后还要消掉的 A');
+  const s1 = applyMove(st, cDown);
+
+  const cLeft = moveFrom(s1, 4, 4, 'L');
+  assert.deepEqual(cLeft, { r: 4, c: 4, d: 'L', res: 'move', tr: 4, tc: 1 });
+  const s2 = applyMove(s1, cLeft);
+
+  const aDown = moveFrom(s2, 2, 4, 'D');
+  assert.deepEqual(aDown, { r: 2, c: 4, d: 'D', res: 'pop', br: 5, bc: 4 });
+  const s3 = applyMove(s2, aDown);
+
+  const bRight = moveFrom(s3, 2, 2, 'R');
+  assert.deepEqual(bRight, { r: 2, c: 2, d: 'R', res: 'move', tr: 2, tc: 5 }, 'B 从缺口穿出去');
+  const s4 = applyMove(s3, bRight);
+
+  const bDown = moveFrom(s4, 1, 5, 'D');
+  assert.deepEqual(bDown, { r: 1, c: 5, d: 'D', res: 'pop', br: 2, bc: 5 });
+  const s5 = applyMove(s4, bDown);
+
+  const cPop = moveFrom(s5, 3, 1, 'D');
+  assert.deepEqual(cPop, { r: 3, c: 1, d: 'D', res: 'pop', br: 4, bc: 1 });
+  const s6 = applyMove(s5, cPop);
+
+  const dPop = moveFrom(s6, 2, 1, 'D');
+  assert.deepEqual(dPop, { r: 2, c: 1, d: 'D', res: 'pop', br: 5, bc: 1 });
+  const s7 = applyMove(s6, dPop);
+  assert.equal(isGoal(s7, lv), true, '七步后应清场');
+  assert.equal(countBlocks(s7), 0);
+
+  const totals = firsts.map((m) => ({ m, total: astarTotal(lv, m) }));
+  const optimal = totals.filter((x) => x.total === 7);
+  assert.equal(optimal.length, 2, '第 9 关应恰好有 2 个最优首步');
+  assert.deepEqual(
+    optimal.map((x) => `${x.m.r},${x.m.c}${x.m.d}`).sort(),
+    ['3,1D', '3,4D'],
+  );
+  for (const x of totals) {
+    assert.ok(
+      Number.isFinite(x.total) && x.total <= lv.limit,
+      `首步 ${x.m.r},${x.m.c}${x.m.d} 之后仍应能在 ${lv.limit} 步内通关`,
+    );
+  }
+  assert.equal(Math.max(...totals.map((x) => x.total)), 10);
+
+  // 两格墙是一整组路障：拆掉 (3,2) 直路打开，par 掉到 5
+  const withoutWall = (wr, wc) =>
+    astarPar({ ...lv, rows: lv.rows.map((row, i) => (i === wr ? row.slice(0, wc) + '.' + row.slice(wc + 1) : row)) });
+  assert.equal(withoutWall(1, 2), 7, '只拿掉上半格，(3,2) 仍然切断第 3 行');
+  assert.equal(withoutWall(3, 2), 5, '拿掉下半格，C 可以直接横过去，par 降为 5');
+  const noWalls = {
+    ...lv,
+    rows: lv.rows.map((row, r) => (r === 0 || r === 6 ? row : '#' + row.slice(1, 6).replace(/#/g, '.') + '#')),
+  };
+  assert.equal(astarPar(noWalls), 5, '拆掉整组墙后直路打通，par 降为 5');
+}
+
+// ---- 4.10 第 10 关「回廊」 ----
+{
+  const lv = LEVELS[9];
+  const st = parse(lv.rows);
+  assert.equal(lv.id, 10);
+  assert.equal(lv.goal, 'clear');
+  assert.equal(countBlocks(st), 6);
+
+  const counts = { 1: 0, 2: 0, 3: 0 };
+  for (const v of st.c) if (v > 0) counts[v]++;
+  assert.deepEqual(counts, { 1: 2, 2: 2, 3: 2 }, '第 10 关应是 A2 B2 C2');
+
+  const walls = [];
+  for (let r = 1; r <= 5; r++)
+    for (let c = 1; c <= 5; c++) if (at(st, r, c) === -1) walls.push(`${r},${c}`);
+  assert.deepEqual(walls, ['2,2', '2,4', '4,3'], '第 10 关应有三格内墙');
+
+  assert.equal(astarPar(lv), 6);
+
+  const firsts = legalMoves(st);
+  assert.equal(firsts.length, 13, '第 10 关开局应有 13 个合法走法');
+  assert.equal(firsts.filter((m) => m.res === 'pop').length, 0, '开局没有现成的配对');
+
+  // C 借 (2,2) 的墙停在 (3,2)，再横消；B 借 A 停在 (1,3)，再借 (4,3) 的墙停到 (3,3)
+  const cUp = moveFrom(st, 5, 2, 'U');
+  assert.deepEqual(cUp, { r: 5, c: 2, d: 'U', res: 'move', tr: 3, tc: 2 });
+  const s1 = applyMove(st, cUp);
+
+  const cPop = moveFrom(s1, 3, 2, 'R');
+  assert.deepEqual(cPop, { r: 3, c: 2, d: 'R', res: 'pop', br: 3, bc: 3 });
+  const s2 = applyMove(s1, cPop);
+
+  const bLeft = moveFrom(s2, 1, 4, 'L');
+  assert.deepEqual(bLeft, { r: 1, c: 4, d: 'L', res: 'move', tr: 1, tc: 3 });
+  assert.equal(at(s2, 1, 2), 1, '把 B 停在 (1,3) 的刹车，是之后还要消掉的 A');
+  const s3 = applyMove(s2, bLeft);
+
+  const bDown = moveFrom(s3, 1, 3, 'D');
+  assert.deepEqual(bDown, { r: 1, c: 3, d: 'D', res: 'move', tr: 3, tc: 3 });
+  const s4 = applyMove(s3, bDown);
+
+  const aPop = moveFrom(s4, 1, 2, 'R');
+  assert.deepEqual(aPop, { r: 1, c: 2, d: 'R', res: 'pop', br: 1, bc: 5 });
+  const s5 = applyMove(s4, aPop);
+
+  const bPop = moveFrom(s5, 3, 3, 'R');
+  assert.deepEqual(bPop, { r: 3, c: 3, d: 'R', res: 'pop', br: 3, bc: 5 });
+  const s6 = applyMove(s5, bPop);
+  assert.equal(isGoal(s6, lv), true, '六步后应清场');
+  assert.equal(countBlocks(s6), 0);
+
+  const totals = firsts.map((m) => ({ m, total: astarTotal(lv, m) }));
+  const optimal = totals.filter((x) => x.total === 6);
+  assert.equal(optimal.length, 2, '第 10 关应恰好有 2 个最优首步');
+  assert.deepEqual(
+    optimal.map((x) => `${x.m.r},${x.m.c}${x.m.d}`).sort(),
+    ['1,4L', '5,2U'],
+  );
+  for (const x of totals) {
+    assert.ok(
+      Number.isFinite(x.total) && x.total <= lv.limit,
+      `首步 ${x.m.r},${x.m.c}${x.m.d} 之后仍应能在 ${lv.limit} 步内通关`,
+    );
+  }
+  assert.equal(Math.max(...totals.map((x) => x.total)), 9);
+
+  const withoutWall = (wr, wc) =>
+    astarPar({ ...lv, rows: lv.rows.map((row, i) => (i === wr ? row.slice(0, wc) + '.' + row.slice(wc + 1) : row)) });
+  assert.equal(withoutWall(2, 2), 7, '拿掉 (2,2) 的墙，C 停不到 (3,2)，par 退化为 7');
+  assert.equal(withoutWall(4, 3), 7, '拿掉 (4,3) 的墙，B 停不到 (3,3)，par 退化为 7');
+  assert.equal(withoutWall(2, 4), 5, '拿掉 (2,4) 后第 2 行直通，反而只要 5 步——它是挡路件');
+}
+
+// ---- 4.11 第 11 关「窄门」 ----
+{
+  const lv = LEVELS[10];
+  const st = parse(lv.rows);
+  assert.equal(lv.id, 11);
+  assert.equal(lv.goal, 'clear');
+  assert.equal(countBlocks(st), 6);
+
+  const counts = { 1: 0, 2: 0, 3: 0 };
+  for (const v of st.c) if (v > 0) counts[v]++;
+  assert.deepEqual(counts, { 1: 2, 2: 2, 3: 2 }, '第 11 关应是 A2 B2 C2');
+
+  // 第 3 列四格墙，只在 (3,3) 留一个单格缺口
+  const walls = [];
+  for (let r = 1; r <= 5; r++)
+    for (let c = 1; c <= 5; c++) if (at(st, r, c) === -1) walls.push(`${r},${c}`);
+  assert.deepEqual(walls, ['1,3', '2,3', '4,3', '5,3'], '第 11 关应是第 3 列四格墙');
+  assert.equal(at(st, 3, 3), 0, '第 3 行必须留出单格缺口');
+
+  // 右半场的方块不能从第 4 行横穿：只能走缺口
+  assert.deepEqual(moveFrom(st, 4, 5, 'L'), { r: 4, c: 5, d: 'L', res: 'move', tr: 4, tc: 4 });
+
+  assert.equal(astarPar(lv), 6);
+
+  const firsts = legalMoves(st);
+  assert.equal(firsts.length, 10, '第 11 关开局应有 10 个合法走法');
+  assert.equal(firsts.filter((m) => m.res === 'pop').length, 0, '开局没有现成的配对');
+
+  // B 先借 (4,3) 的墙停在 (4,4)；C 消掉后 A 借这块 B 停在 (3,4)；
+  // B 消掉，A 穿过缺口到左半场；最后两块 A 会合
+  const bLeft = moveFrom(st, 4, 5, 'L');
+  assert.deepEqual(bLeft, { r: 4, c: 5, d: 'L', res: 'move', tr: 4, tc: 4 });
+  const s1 = applyMove(st, bLeft);
+
+  const cDown = moveFrom(s1, 3, 5, 'D');
+  assert.deepEqual(cDown, { r: 3, c: 5, d: 'D', res: 'pop', br: 5, bc: 5 });
+  const s2 = applyMove(s1, cDown);
+
+  const aDown = moveFrom(s2, 2, 4, 'D');
+  assert.deepEqual(aDown, { r: 2, c: 4, d: 'D', res: 'move', tr: 3, tc: 4 });
+  assert.equal(at(s2, 4, 4), 2, '把 A 停在 (3,4) 的刹车，是之后还要消掉的 B');
+  const s3 = applyMove(s2, aDown);
+
+  const bPop = moveFrom(s3, 4, 4, 'D');
+  assert.deepEqual(bPop, { r: 4, c: 4, d: 'D', res: 'pop', br: 5, bc: 4 });
+  const s4 = applyMove(s3, bPop);
+
+  // A 穿过单格缺口 (3,3)
+  const aLeft = moveFrom(s4, 3, 4, 'L');
+  assert.deepEqual(aLeft, { r: 3, c: 4, d: 'L', res: 'move', tr: 3, tc: 1 }, 'A 从 (3,3) 的缺口穿到左半场');
+  const s5 = applyMove(s4, aLeft);
+
+  const aPop = moveFrom(s5, 2, 1, 'D');
+  assert.deepEqual(aPop, { r: 2, c: 1, d: 'D', res: 'pop', br: 3, bc: 1 });
+  const s6 = applyMove(s5, aPop);
+  assert.equal(isGoal(s6, lv), true, '六步后应清场');
+  assert.equal(countBlocks(s6), 0);
+
+  const totals = firsts.map((m) => ({ m, total: astarTotal(lv, m) }));
+  const optimal = totals.filter((x) => x.total === 6);
+  assert.equal(optimal.length, 1, '第 11 关只有一条最优首步');
+  assert.deepEqual(optimal.map((x) => `${x.m.r},${x.m.c}${x.m.d}`), ['4,5L']);
+  for (const x of totals) {
+    assert.ok(
+      Number.isFinite(x.total) && x.total <= lv.limit,
+      `首步 ${x.m.r},${x.m.c}${x.m.d} 之后仍应能在 ${lv.limit} 步内通关`,
+    );
+  }
+  assert.equal(Math.max(...totals.map((x) => x.total)), 8);
+
+  const withoutWall = (wr, wc) =>
+    astarPar({ ...lv, rows: lv.rows.map((row, i) => (i === wr ? row.slice(0, wc) + '.' + row.slice(wc + 1) : row)) });
+  assert.equal(withoutWall(2, 3), 4, '拿掉 (2,3) 后第 2 行也通了，par 掉到 4');
+  assert.equal(withoutWall(4, 3), 7, '拿掉 (4,3) 后 B 停不到 (4,4)，par 退化为 7');
+  const noWalls11 = {
+    ...lv,
+    rows: lv.rows.map((row, r) => (r === 0 || r === 6 ? row : '#' + row.slice(1, 6).replace(/#/g, '.') + '#')),
+  };
+  assert.equal(astarPar(noWalls11), 5, '拆掉整列墙后左右直通，par 降为 5');
+}
+
+// ---- 4.12 第 12 关「三色台阶」 ----
+{
+  const lv = LEVELS[11];
+  const st = parse(lv.rows);
+  assert.equal(lv.id, 12);
+  assert.equal(lv.goal, 'clear');
+  assert.equal(countBlocks(st), 6);
+
+  const counts = { 1: 0, 2: 0, 3: 0 };
+  for (const v of st.c) if (v > 0) counts[v]++;
+  assert.deepEqual(counts, { 1: 2, 2: 2, 3: 2 }, '第 12 关应是 A2 B2 C2');
+
+  const walls = [];
+  for (let r = 1; r <= 5; r++)
+    for (let c = 1; c <= 5; c++) if (at(st, r, c) === -1) walls.push(`${r},${c}`);
+  assert.deepEqual(walls, ['2,2', '2,4'], '第 12 关应只有两格内墙');
+
+  assert.equal(astarPar(lv), 6);
+
+  const firsts = legalMoves(st);
+  assert.equal(firsts.length, 14, '第 12 关开局应有 14 个合法走法');
+  assert.equal(firsts.filter((m) => m.res === 'pop').length, 0, '开局没有现成的配对');
+
+  // B 借 A 停在 (1,3)，再落到底行；A 横消；B 在底行会合；C 借 (2,2) 的墙停在 (3,2)
+  const bLeft = moveFrom(st, 1, 4, 'L');
+  assert.deepEqual(bLeft, { r: 1, c: 4, d: 'L', res: 'move', tr: 1, tc: 3 });
+  assert.equal(at(st, 1, 2), 1, '把 B 停在 (1,3) 的刹车，是之后还要消掉的 A');
+  const s1 = applyMove(st, bLeft);
+
+  const bDown = moveFrom(s1, 1, 3, 'D');
+  assert.deepEqual(bDown, { r: 1, c: 3, d: 'D', res: 'move', tr: 5, tc: 3 });
+  const s2 = applyMove(s1, bDown);
+
+  const aPop = moveFrom(s2, 1, 2, 'R');
+  assert.deepEqual(aPop, { r: 1, c: 2, d: 'R', res: 'pop', br: 1, bc: 5 });
+  const s3 = applyMove(s2, aPop);
+
+  const bPop = moveFrom(s3, 5, 3, 'R');
+  assert.deepEqual(bPop, { r: 5, c: 3, d: 'R', res: 'pop', br: 5, bc: 4 });
+  const s4 = applyMove(s3, bPop);
+
+  const cUp = moveFrom(s4, 4, 2, 'U');
+  assert.deepEqual(cUp, { r: 4, c: 2, d: 'U', res: 'move', tr: 3, tc: 2 });
+  const s5 = applyMove(s4, cUp);
+
+  const cPop = moveFrom(s5, 3, 1, 'R');
+  assert.deepEqual(cPop, { r: 3, c: 1, d: 'R', res: 'pop', br: 3, bc: 2 });
+  const s6 = applyMove(s5, cPop);
+  assert.equal(isGoal(s6, lv), true, '六步后应清场');
+  assert.equal(countBlocks(s6), 0);
+
+  const totals = firsts.map((m) => ({ m, total: astarTotal(lv, m) }));
+  const optimal = totals.filter((x) => x.total === 6);
+  assert.equal(optimal.length, 3, '第 12 关应有 3 个最优首步');
+  assert.deepEqual(
+    optimal.map((x) => `${x.m.r},${x.m.c}${x.m.d}`).sort(),
+    ['1,4L', '4,2L', '4,2U'],
+  );
+  for (const x of totals) {
+    assert.ok(
+      Number.isFinite(x.total) && x.total <= lv.limit,
+      `首步 ${x.m.r},${x.m.c}${x.m.d} 之后仍应能在 ${lv.limit} 步内通关`,
+    );
+  }
+  assert.equal(Math.max(...totals.map((x) => x.total)), 9);
+
+  const withoutWall = (wr, wc) =>
+    astarPar({ ...lv, rows: lv.rows.map((row, i) => (i === wr ? row.slice(0, wc) + '.' + row.slice(wc + 1) : row)) });
+  assert.equal(withoutWall(2, 2), 6, '拿掉 (2,2) 后 C 还有别的停法，par 仍是 6（但这格是给定解法的刹车）');
+  assert.equal(withoutWall(2, 4), 4, '拿掉 (2,4) 后上半场直通，par 掉到 4');
+  const noWalls12 = {
+    ...lv,
+    rows: lv.rows.map((row, r) => (r === 0 || r === 6 ? row : '#' + row.slice(1, 6).replace(/#/g, '.') + '#')),
+  };
+  assert.equal(astarPar(noWalls12), 4, '拆掉整组墙后上半场直通，par 降为 4');
+}
+
+// ---- 5. 关卡参数：par 必须等于最优解，且 par < 上限 ----
+// 1–8 关用 src BFS 精确穷举；9 关起块数变多，改用已校准的 A*（路径仍在下面的
+// 单关断言里用 src/game.js 逐步回放，保证"设计时能过 = 游戏里能过"）。
 for (const lv of LEVELS) {
-  const par = solve(lv);
+  const par = solveLevel(lv);
   assert.equal(par, lv.par, `第 ${lv.id} 关 par 应为 ${lv.par}，实际 ${par}`);
   assert.ok(lv.par <= lv.limit, `第 ${lv.id} 关 par 不应超过步数上限`);
   assert.ok(lv.limit - lv.par >= 1, `第 ${lv.id} 关需要留出容错步数`);
@@ -630,11 +963,13 @@ for (const lv of RESEARCH_LEVELS) {
 }
 
 console.log(
-  `规则内核 OK：8 关 par = ${LEVELS.map((l) => l.par).join('/')}；` +
+  `规则内核 OK：${LEVELS.length} 关 par = ${LEVELS.map((l) => l.par).join('/')}；` +
     `2/3/4 关最优首步唯一、第 5 关两条（先竖或先横）、第 6 关两条（先 C 或先 A）、第 7 关两条（先 B 或先 A）、第 8 关两条（先 C 借 A 停车或先 B 借墙停车）；` +
+    `第 9 关两条（先动左边或右边的 C）、第 10 关两条（先 C 借墙或先 B 借 A）、第 11 关一条（先推右下 B）、第 12 关三条（先 B 借 A 或先 C 借墙）；` +
     `第 3 关不先推块 par 退化为 5、第 4 关不碰蓝块直接无解、第 5 关不碰蓝或绿都退化为 5；` +
     `第 6 关 13 个首步全部仍能在 10 步内通关，先动右上 B 退化为 8；` +
     `第 7 关 13 个首步全部仍能在 8 步内通关，拿掉任意一格墙 par 都退化为 6；` +
     `第 8 关 13 个首步全部仍能在 9 步内通关，先动 A(3,4) 会拆掉 C 的停车位、退化为 8，拿掉任一格墙 par 都退化为 7；` +
+    `第 9–12 关所有首步都在上限内可通关；第 9、10、11、12 关拆掉整组墙后 par 分别降为 5/5/5/4；` +
     `与 research 引擎对拍 ${compared} 个状态一致。`,
 );
