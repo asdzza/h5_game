@@ -8,16 +8,27 @@
 //   · 预算：par ≤ 上限，且至少留 1 步容错
 //   · --dead  再扫 10 步/上限内可达局面的死局（无路可走且未达标）
 //   · --first 再统计每个首步离最优差几步（用来判断"一步走错掉几颗星"）
+//   · 第 9 关起 BFS 状态数过大，par 与 --first 改用 A*（VERIFY_ASTAR_NODES，默认 90 万）
 //
 // 输出末行固定为 levels=<N> failed=<M>，失败时进程退出码为 1。
 import { parse, legalMoves, applyMove, isGoal, countBlocks, at } from '../src/game.js';
 import { LEVELS } from '../src/levels.js';
+import { parse as rParse, genA, applyA } from '../research/engine.mjs';
+import { aStar } from '../research/solver_fast.mjs';
 
 const argv = process.argv.slice(2);
 const OPT_DEAD = argv.includes('--dead');
 const OPT_FIRST = argv.includes('--first');
 const NODE_CAP = Number(process.env.VERIFY_NODES || 600000);
 const DEAD_CAP = Number(process.env.VERIFY_DEAD_NODES || 1200000);
+const ASTAR_CAP = Number(process.env.VERIFY_ASTAR_NODES || 900000);
+// 9 关起块数变多，BFS 状态数会超过 60 万；改用已校准的 A*（与 tools/test_rules.mjs 同一内核）
+const FAST_FROM = 9;
+const goalOpts = (lv) => (lv.goal === 'color' ? { targetColor: lv.targetColor } : {});
+const fastPar = (lv) => {
+  const r = aStar(rParse(lv.rows), 'A', ASTAR_CAP, goalOpts(lv));
+  return r ? r.len : -1;
+};
 
 // 紧凑 key：只编码"有方块的格子 + 颜色"，比整盘 join 快约 2 倍。
 function key(st) {
@@ -126,13 +137,22 @@ for (const lv of LEVELS) {
     }
 
     // par 只能是"不超过"：在声明的 par 步内必须真的能通关
-    par = parWithin(st, lv, lv.par);
-    if (par === -1) {
-      errs.push(`搜索超出节点上限（${NODE_CAP}），无法确认 par`);
-    } else if (par === Infinity) {
-      errs.push(`声明的 par=${lv.par} 步内无解（par 虚报或关卡无解）`);
-    } else if (par !== lv.par) {
-      errs.push(`实际最少 ${par} 步，声明 par=${lv.par}`);
+    if (lv.id >= FAST_FROM) {
+      par = fastPar(lv);
+      if (par === -1) {
+        errs.push(`A* 超出节点上限（${ASTAR_CAP}），无法确认 par`);
+      } else if (par !== lv.par) {
+        errs.push(`实际最少 ${par} 步，声明 par=${lv.par}`);
+      }
+    } else {
+      par = parWithin(st, lv, lv.par);
+      if (par === -1) {
+        errs.push(`搜索超出节点上限（${NODE_CAP}），无法确认 par`);
+      } else if (par === Infinity) {
+        errs.push(`声明的 par=${lv.par} 步内无解（par 虚报或关卡无解）`);
+      } else if (par !== lv.par) {
+        errs.push(`实际最少 ${par} 步，声明 par=${lv.par}`);
+      }
     }
 
     if (lv.par > lv.limit) errs.push(`par ${lv.par} > 上限 ${lv.limit}`);
@@ -150,14 +170,25 @@ for (const lv of LEVELS) {
     }
 
     if (OPT_FIRST && !errs.length) {
-      const st0 = parse(lv.rows);
-      const firsts = legalMoves(st0).map((m) => {
-        const d = parWithin(applyMove(st0, m), lv, lv.limit - 1);
-        return { m, total: Number.isFinite(d) ? 1 + d : Infinity };
-      });
-      const best = firsts.filter((x) => x.total === lv.par).length;
-      const worst = firsts.length ? Math.max(...firsts.map((x) => (x.total === Infinity ? 99 : x.total))) : 0;
-      notes.push(`首步 ${firsts.length}（保持 par ${best}，最差 ${worst === 99 ? '>上限' : worst}）`);
+      if (lv.id >= FAST_FROM) {
+        const start = rParse(lv.rows);
+        const firsts = genA(start).map((m) => {
+          const r = aStar(applyA(start, m), 'A', ASTAR_CAP, goalOpts(lv));
+          return { m, total: r ? 1 + r.len : Infinity };
+        });
+        const best = firsts.filter((x) => x.total === lv.par).length;
+        const worst = firsts.length ? Math.max(...firsts.map((x) => (x.total === Infinity ? 99 : x.total))) : 0;
+        notes.push(`首步 ${firsts.length}（保持 par ${best}，最差 ${worst === 99 ? '>上限' : worst}）`);
+      } else {
+        const st0 = parse(lv.rows);
+        const firsts = legalMoves(st0).map((m) => {
+          const d = parWithin(applyMove(st0, m), lv, lv.limit - 1);
+          return { m, total: Number.isFinite(d) ? 1 + d : Infinity };
+        });
+        const best = firsts.filter((x) => x.total === lv.par).length;
+        const worst = firsts.length ? Math.max(...firsts.map((x) => (x.total === Infinity ? 99 : x.total))) : 0;
+        notes.push(`首步 ${firsts.length}（保持 par ${best}，最差 ${worst === 99 ? '>上限' : worst}）`);
+      }
     }
   } catch (e) {
     errs.push(e.message);

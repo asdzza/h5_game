@@ -907,6 +907,497 @@ const solveLevel = (lv) => (lv.id <= 8 ? solve(lv) : astarPar(lv));
   assert.equal(astarPar(noWalls12), 4, '拆掉整组墙后上半场直通，par 降为 4');
 }
 
+// ---- 4.13 第 13 关「对角」 ----
+{
+  const lv = LEVELS[12];
+  const st = parse(lv.rows);
+  assert.equal(lv.id, 13);
+  assert.equal(lv.goal, 'clear');
+  assert.equal(countBlocks(st), 8);
+
+  const counts = { 1: 0, 2: 0, 3: 0, 4: 0 };
+  for (const v of st.c) if (v > 0) counts[v]++;
+  assert.deepEqual(counts, { 1: 2, 2: 2, 3: 2, 4: 2 }, '第 13 关应是 A2 B2 C2 D2');
+
+  const walls = [];
+  for (let r = 1; r <= 5; r++)
+    for (let c = 1; c <= 5; c++) if (at(st, r, c) === -1) walls.push(`${r},${c}`);
+  assert.deepEqual(walls, ['1,2', '3,2'], '第 13 关应只有两格竖墙');
+
+  assert.equal(astarPar(lv), 8);
+
+  const firsts = legalMoves(st);
+  assert.equal(firsts.length, 17, '第 13 关开局应有 17 个合法走法');
+  assert.equal(firsts.filter((m) => m.res === 'pop').length, 0, '开局没有现成的配对');
+
+  // 绿块先贴 (3,2) 的墙停在 (3,3)，另一块绿块从上面落下会合
+  const cLeft = moveFrom(st, 3, 4, 'L');
+  assert.deepEqual(cLeft, { r: 3, c: 4, d: 'L', res: 'move', tr: 3, tc: 3 });
+  const s1 = applyMove(st, cLeft);
+
+  const cDown = moveFrom(s1, 1, 3, 'D');
+  assert.deepEqual(cDown, { r: 1, c: 3, d: 'D', res: 'pop', br: 3, bc: 3 });
+  const s2 = applyMove(s1, cDown);
+
+  const dRight = moveFrom(s2, 2, 4, 'R');
+  assert.deepEqual(dRight, { r: 2, c: 4, d: 'R', res: 'move', tr: 2, tc: 5 });
+  const s3 = applyMove(s2, dRight);
+
+  const bRight = moveFrom(s3, 2, 2, 'R');
+  assert.deepEqual(bRight, { r: 2, c: 2, d: 'R', res: 'move', tr: 2, tc: 4 });
+  const s4 = applyMove(s3, bRight);
+
+  const bDown = moveFrom(s4, 2, 4, 'D');
+  assert.deepEqual(bDown, { r: 2, c: 4, d: 'D', res: 'pop', br: 5, bc: 4 });
+  const s5 = applyMove(s4, bDown);
+
+  const dUp = moveFrom(s5, 3, 1, 'U');
+  assert.deepEqual(dUp, { r: 3, c: 1, d: 'U', res: 'move', tr: 2, tc: 1 });
+  const s6 = applyMove(s5, dUp);
+
+  const dPop = moveFrom(s6, 2, 1, 'R');
+  assert.deepEqual(dPop, { r: 2, c: 1, d: 'R', res: 'pop', br: 2, bc: 5 });
+  const s7 = applyMove(s6, dPop);
+
+  const aPop = moveFrom(s7, 1, 1, 'D');
+  assert.deepEqual(aPop, { r: 1, c: 1, d: 'D', res: 'pop', br: 4, bc: 1 });
+  const s8 = applyMove(s7, aPop);
+  assert.equal(isGoal(s8, lv), true, '八步后应清场');
+  assert.equal(countBlocks(s8), 0);
+
+  const totals = firsts.map((m) => ({ m, total: astarTotal(lv, m) }));
+  const optimal = totals.filter((x) => x.total === 8);
+  assert.equal(optimal.length, 4, '第 13 关应有 4 个最优首步');
+  assert.deepEqual(
+    optimal.map((x) => `${x.m.r},${x.m.c}${x.m.d}`).sort(),
+    ['2,2R', '2,4R', '3,1U', '3,4L'],
+  );
+  for (const x of totals) {
+    assert.ok(
+      Number.isFinite(x.total) && x.total <= lv.limit,
+      `首步 ${x.m.r},${x.m.c}${x.m.d} 之后仍应能在 ${lv.limit} 步内通关`,
+    );
+  }
+  assert.equal(Math.max(...totals.map((x) => x.total)), 10);
+
+  const withoutWall = (wr, wc) =>
+    astarPar({ ...lv, rows: lv.rows.map((row, i) => (i === wr ? row.slice(0, wc) + '.' + row.slice(wc + 1) : row)) });
+  assert.equal(withoutWall(1, 2), 8, '拿掉 (1,2) 后仍要 8 步');
+  assert.equal(withoutWall(3, 2), 7, '拿掉 (3,2) 后绿块不用贴墙，par 降为 7');
+  const noWalls13 = {
+    ...lv,
+    rows: lv.rows.map((row, r) => (r === 0 || r === 6 ? row : '#' + row.slice(1, 6).replace(/#/g, '.') + '#')),
+  };
+  assert.equal(astarPar(noWalls13), 7, '拆掉整组墙后 par 降为 7');
+}
+
+// ---- 4.14 第 14 关「内外圈」 ----
+{
+  const lv = LEVELS[13];
+  const st = parse(lv.rows);
+  assert.equal(lv.id, 14);
+  assert.equal(lv.goal, 'clear');
+  assert.equal(countBlocks(st), 6);
+
+  const counts = { 1: 0, 2: 0, 3: 0 };
+  for (const v of st.c) if (v > 0) counts[v]++;
+  assert.deepEqual(counts, { 1: 2, 2: 2, 3: 2 }, '第 14 关应是 A2 B2 C2');
+
+  const walls = [];
+  for (let r = 1; r <= 5; r++)
+    for (let c = 1; c <= 5; c++) if (at(st, r, c) === -1) walls.push(`${r},${c}`);
+  assert.deepEqual(walls, ['2,2', '2,3', '3,2'], '第 14 关应是凹形三格墙');
+
+  assert.equal(astarPar(lv), 6);
+
+  const firsts = legalMoves(st);
+  assert.equal(firsts.length, 11, '第 14 关开局应有 11 个合法走法');
+  assert.equal(firsts.filter((m) => m.res === 'pop').length, 0, '开局没有现成的配对');
+
+  // 蓝块借 (2,3) 的墙停在 (3,3)，红块在底行横消；另一块蓝块借绿块停在 (3,5)
+  const bUp = moveFrom(st, 5, 3, 'U');
+  assert.deepEqual(bUp, { r: 5, c: 3, d: 'U', res: 'move', tr: 3, tc: 3 });
+  const s1 = applyMove(st, bUp);
+
+  const aRight = moveFrom(s1, 5, 2, 'R');
+  assert.deepEqual(aRight, { r: 5, c: 2, d: 'R', res: 'pop', br: 5, bc: 5 });
+  const s2 = applyMove(s1, aRight);
+
+  const bDown = moveFrom(s2, 1, 5, 'D');
+  assert.deepEqual(bDown, { r: 1, c: 5, d: 'D', res: 'move', tr: 3, tc: 5 });
+  const s3 = applyMove(s2, bDown);
+
+  const bPop = moveFrom(s3, 3, 3, 'R');
+  assert.deepEqual(bPop, { r: 3, c: 3, d: 'R', res: 'pop', br: 3, bc: 5 });
+  const s4 = applyMove(s3, bPop);
+
+  const cRight = moveFrom(s4, 1, 3, 'R');
+  assert.deepEqual(cRight, { r: 1, c: 3, d: 'R', res: 'move', tr: 1, tc: 5 });
+  const s5 = applyMove(s4, cRight);
+
+  const cPop = moveFrom(s5, 1, 5, 'D');
+  assert.deepEqual(cPop, { r: 1, c: 5, d: 'D', res: 'pop', br: 4, bc: 5 });
+  const s6 = applyMove(s5, cPop);
+  assert.equal(isGoal(s6, lv), true, '六步后应清场');
+  assert.equal(countBlocks(s6), 0);
+
+  const totals = firsts.map((m) => ({ m, total: astarTotal(lv, m) }));
+  const optimal = totals.filter((x) => x.total === 6);
+  assert.equal(optimal.length, 4, '第 14 关应有 4 个最优首步');
+  assert.deepEqual(
+    optimal.map((x) => `${x.m.r},${x.m.c}${x.m.d}`).sort(),
+    ['1,5D', '1,5L', '5,3R', '5,3U'],
+  );
+  for (const x of totals) {
+    assert.ok(
+      Number.isFinite(x.total) && x.total <= lv.limit,
+      `首步 ${x.m.r},${x.m.c}${x.m.d} 之后仍应能在 ${lv.limit} 步内通关`,
+    );
+  }
+  assert.equal(Math.max(...totals.map((x) => x.total)), 8);
+
+  const withoutWall = (wr, wc) =>
+    astarPar({ ...lv, rows: lv.rows.map((row, i) => (i === wr ? row.slice(0, wc) + '.' + row.slice(wc + 1) : row)) });
+  assert.equal(withoutWall(2, 2), 6, '拿掉 (2,2) 后蓝块仍有别的停法，par 仍是 6');
+  assert.equal(withoutWall(2, 3), 5, '拿掉 (2,3) 后凹口断开，par 降为 5');
+  assert.equal(withoutWall(3, 2), 6, '拿掉 (3,2) 后蓝块仍有别的停法，par 仍是 6');
+  const noWalls14 = {
+    ...lv,
+    rows: lv.rows.map((row, r) => (r === 0 || r === 6 ? row : '#' + row.slice(1, 6).replace(/#/g, '.') + '#')),
+  };
+  assert.equal(astarPar(noWalls14), 5, '拆掉整组墙后 par 降为 5');
+}
+
+// ---- 4.15 第 15 关「双缺口」 ----
+{
+  const lv = LEVELS[14];
+  const st = parse(lv.rows);
+  assert.equal(lv.id, 15);
+  assert.equal(lv.goal, 'clear');
+  assert.equal(countBlocks(st), 8);
+
+  const counts = { 1: 0, 2: 0, 3: 0 };
+  for (const v of st.c) if (v > 0) counts[v]++;
+  assert.deepEqual(counts, { 1: 4, 2: 2, 3: 2 }, '第 15 关应是 A4 B2 C2');
+
+  const walls = [];
+  for (let r = 1; r <= 5; r++)
+    for (let c = 1; c <= 5; c++) if (at(st, r, c) === -1) walls.push(`${r},${c}`);
+  assert.deepEqual(walls, ['1,3', '2,3', '3,3'], '第 15 关应是第 3 列上半段三格墙');
+  assert.equal(at(st, 4, 3), 0, '第 4 行必须留出下方的出口');
+
+  assert.equal(astarPar(lv), 7);
+
+  const firsts = legalMoves(st);
+  assert.equal(firsts.length, 14, '第 15 关开局应有 14 个合法走法');
+  assert.equal(firsts.filter((m) => m.res === 'pop').length, 0, '开局没有现成的配对');
+
+  // 蓝块贴墙停在 (2,2)；红块竖向对消；另一块红块贴墙停到 (3,4)
+  const bRight = moveFrom(st, 2, 1, 'R');
+  assert.deepEqual(bRight, { r: 2, c: 1, d: 'R', res: 'move', tr: 2, tc: 2 });
+  const s1 = applyMove(st, bRight);
+
+  const aDown = moveFrom(s1, 1, 1, 'D');
+  assert.deepEqual(aDown, { r: 1, c: 1, d: 'D', res: 'pop', br: 3, bc: 1 });
+  const s2 = applyMove(s1, aDown);
+
+  const aLeft = moveFrom(s2, 3, 5, 'L');
+  assert.deepEqual(aLeft, { r: 3, c: 5, d: 'L', res: 'move', tr: 3, tc: 4 });
+  const s3 = applyMove(s2, aLeft);
+
+  const cRight = moveFrom(s3, 5, 2, 'R');
+  assert.deepEqual(cRight, { r: 5, c: 2, d: 'R', res: 'move', tr: 5, tc: 5 });
+  const s4 = applyMove(s3, cRight);
+
+  const cDown = moveFrom(s4, 1, 5, 'D');
+  assert.deepEqual(cDown, { r: 1, c: 5, d: 'D', res: 'pop', br: 5, bc: 5 });
+  const s5 = applyMove(s4, cDown);
+
+  const aPop = moveFrom(s5, 1, 4, 'D');
+  assert.deepEqual(aPop, { r: 1, c: 4, d: 'D', res: 'pop', br: 3, bc: 4 });
+  const s6 = applyMove(s5, aPop);
+
+  const bPop = moveFrom(s6, 2, 2, 'D');
+  assert.deepEqual(bPop, { r: 2, c: 2, d: 'D', res: 'pop', br: 4, bc: 2 });
+  const s7 = applyMove(s6, bPop);
+  assert.equal(isGoal(s7, lv), true, '七步后应清场');
+  assert.equal(countBlocks(s7), 0);
+
+  const totals = firsts.map((m) => ({ m, total: astarTotal(lv, m) }));
+  const optimal = totals.filter((x) => x.total === 7);
+  assert.equal(optimal.length, 3, '第 15 关应有 3 个最优首步');
+  assert.deepEqual(
+    optimal.map((x) => `${x.m.r},${x.m.c}${x.m.d}`).sort(),
+    ['2,1R', '3,5L', '5,2R'],
+  );
+  for (const x of totals) {
+    assert.ok(
+      Number.isFinite(x.total) && x.total <= lv.limit,
+      `首步 ${x.m.r},${x.m.c}${x.m.d} 之后仍应能在 ${lv.limit} 步内通关`,
+    );
+  }
+  assert.equal(Math.max(...totals.map((x) => x.total)), 9);
+
+  const withoutWall = (wr, wc) =>
+    astarPar({ ...lv, rows: lv.rows.map((row, i) => (i === wr ? row.slice(0, wc) + '.' + row.slice(wc + 1) : row)) });
+  assert.equal(withoutWall(1, 3), 7, '拿掉 (1,3) 后仍要 7 步');
+  assert.equal(withoutWall(2, 3), 8, '拿掉 (2,3) 后蓝块失去停车位，par 变慢为 8');
+  assert.equal(withoutWall(3, 3), 8, '拿掉 (3,3) 后红块失去停车位，par 变慢为 8');
+  const noWalls15 = {
+    ...lv,
+    rows: lv.rows.map((row, r) => (r === 0 || r === 6 ? row : '#' + row.slice(1, 6).replace(/#/g, '.') + '#')),
+  };
+  assert.equal(astarPar(noWalls15), 6, '拆掉整组墙后 par 降为 6');
+}
+
+// ---- 4.16 第 16 关「假出口」 ----
+{
+  const lv = LEVELS[15];
+  const st = parse(lv.rows);
+  assert.equal(lv.id, 16);
+  assert.equal(lv.goal, 'clear');
+  assert.equal(countBlocks(st), 8);
+
+  const counts = { 1: 0, 2: 0, 3: 0 };
+  for (const v of st.c) if (v > 0) counts[v]++;
+  assert.deepEqual(counts, { 1: 4, 2: 2, 3: 2 }, '第 16 关应是 A4 B2 C2');
+
+  const walls = [];
+  for (let r = 1; r <= 5; r++)
+    for (let c = 1; c <= 5; c++) if (at(st, r, c) === -1) walls.push(`${r},${c}`);
+  assert.deepEqual(walls, ['1,2', '1,4', '3,2', '3,4'], '第 16 关应是两排交错墙');
+
+  assert.equal(astarPar(lv), 7);
+
+  const firsts = legalMoves(st);
+  assert.equal(firsts.length, 14, '第 16 关开局应有 14 个合法走法');
+  assert.equal(firsts.filter((m) => m.res === 'pop').length, 0, '开局没有现成的配对');
+
+  // 红块借 (3,4) 的墙停在第四行，再横过去和同伴会合
+  const aUp = moveFrom(st, 5, 4, 'U');
+  assert.deepEqual(aUp, { r: 5, c: 4, d: 'U', res: 'move', tr: 4, tc: 4 });
+  const s1 = applyMove(st, aUp);
+
+  const aPop = moveFrom(s1, 4, 1, 'R');
+  assert.deepEqual(aPop, { r: 4, c: 1, d: 'R', res: 'pop', br: 4, bc: 4 });
+  const s2 = applyMove(s1, aPop);
+
+  const cPop = moveFrom(s2, 5, 1, 'R');
+  assert.deepEqual(cPop, { r: 5, c: 1, d: 'R', res: 'pop', br: 5, bc: 5 });
+  const s3 = applyMove(s2, cPop);
+
+  const bRight = moveFrom(s3, 2, 2, 'R');
+  assert.deepEqual(bRight, { r: 2, c: 2, d: 'R', res: 'move', tr: 2, tc: 3 });
+  const s4 = applyMove(s3, bRight);
+
+  const bPop = moveFrom(s4, 2, 3, 'D');
+  assert.deepEqual(bPop, { r: 2, c: 3, d: 'D', res: 'pop', br: 3, bc: 3 });
+  const s5 = applyMove(s4, bPop);
+
+  const aRight = moveFrom(s5, 2, 4, 'R');
+  assert.deepEqual(aRight, { r: 2, c: 4, d: 'R', res: 'move', tr: 2, tc: 5 });
+  const s6 = applyMove(s5, aRight);
+
+  const aDown = moveFrom(s6, 2, 5, 'D');
+  assert.deepEqual(aDown, { r: 2, c: 5, d: 'D', res: 'pop', br: 3, bc: 5 });
+  const s7 = applyMove(s6, aDown);
+  assert.equal(isGoal(s7, lv), true, '七步后应清场');
+  assert.equal(countBlocks(s7), 0);
+
+  const totals = firsts.map((m) => ({ m, total: astarTotal(lv, m) }));
+  const optimal = totals.filter((x) => x.total === 7);
+  assert.equal(optimal.length, 2, '第 16 关应有 2 个最优首步');
+  assert.deepEqual(
+    optimal.map((x) => `${x.m.r},${x.m.c}${x.m.d}`).sort(),
+    ['2,2R', '5,4U'],
+  );
+  for (const x of totals) {
+    assert.ok(
+      Number.isFinite(x.total) && x.total <= lv.limit,
+      `首步 ${x.m.r},${x.m.c}${x.m.d} 之后仍应能在 ${lv.limit} 步内通关`,
+    );
+  }
+  assert.equal(Math.max(...totals.map((x) => x.total)), 9);
+
+  const withoutWall = (wr, wc) =>
+    astarPar({ ...lv, rows: lv.rows.map((row, i) => (i === wr ? row.slice(0, wc) + '.' + row.slice(wc + 1) : row)) });
+  assert.equal(withoutWall(1, 2), 7, '拿掉 (1,2) 后仍要 7 步');
+  assert.equal(withoutWall(1, 4), 7, '拿掉 (1,4) 后仍要 7 步');
+  assert.equal(withoutWall(3, 2), 7, '拿掉 (3,2) 后仍要 7 步');
+  assert.equal(withoutWall(3, 4), 6, '拿掉 (3,4) 后红块不用贴墙，par 降为 6');
+  const noWalls16 = {
+    ...lv,
+    rows: lv.rows.map((row, r) => (r === 0 || r === 6 ? row : '#' + row.slice(1, 6).replace(/#/g, '.') + '#')),
+  };
+  assert.equal(astarPar(noWalls16), 6, '拆掉整组墙后 par 降为 6');
+}
+
+// ---- 4.17 第 17 关「长走廊」 ----
+{
+  const lv = LEVELS[16];
+  const st = parse(lv.rows);
+  assert.equal(lv.id, 17);
+  assert.equal(lv.goal, 'clear');
+  assert.equal(countBlocks(st), 8);
+
+  const counts = { 1: 0, 2: 0, 3: 0 };
+  for (const v of st.c) if (v > 0) counts[v]++;
+  assert.deepEqual(counts, { 1: 2, 2: 2, 3: 4 }, '第 17 关应是 A2 B2 C4');
+
+  const walls = [];
+  for (let r = 1; r <= 5; r++)
+    for (let c = 1; c <= 5; c++) if (at(st, r, c) === -1) walls.push(`${r},${c}`);
+  assert.deepEqual(walls, ['3,2', '3,3', '3,4'], '第 17 关应是第三行三格横墙');
+
+  assert.equal(astarPar(lv), 7);
+
+  const firsts = legalMoves(st);
+  assert.equal(firsts.length, 14, '第 17 关开局应有 14 个合法走法');
+  assert.equal(firsts.filter((m) => m.res === 'pop').length, 0, '开局没有现成的配对');
+
+  // 绿块借 (3,4) 的墙停在 (4,4)；红块在底行横消；另一块绿块从上方落到墙边
+  const cUp = moveFrom(st, 5, 4, 'U');
+  assert.deepEqual(cUp, { r: 5, c: 4, d: 'U', res: 'move', tr: 4, tc: 4 });
+  const s1 = applyMove(st, cUp);
+
+  const aPop = moveFrom(s1, 5, 3, 'R');
+  assert.deepEqual(aPop, { r: 5, c: 3, d: 'R', res: 'pop', br: 5, bc: 5 });
+  const s2 = applyMove(s1, aPop);
+
+  const cDown = moveFrom(s2, 1, 4, 'D');
+  assert.deepEqual(cDown, { r: 1, c: 4, d: 'D', res: 'move', tr: 2, tc: 4 });
+  const s3 = applyMove(s2, cDown);
+
+  const cPop1 = moveFrom(s3, 2, 2, 'R');
+  assert.deepEqual(cPop1, { r: 2, c: 2, d: 'R', res: 'pop', br: 2, bc: 4 });
+  const s4 = applyMove(s3, cPop1);
+
+  const cPop2 = moveFrom(s4, 4, 3, 'R');
+  assert.deepEqual(cPop2, { r: 4, c: 3, d: 'R', res: 'pop', br: 4, bc: 4 });
+  const s5 = applyMove(s4, cPop2);
+
+  const bRight = moveFrom(s5, 1, 3, 'R');
+  assert.deepEqual(bRight, { r: 1, c: 3, d: 'R', res: 'move', tr: 1, tc: 5 });
+  const s6 = applyMove(s5, bRight);
+
+  const bDown = moveFrom(s6, 1, 5, 'D');
+  assert.deepEqual(bDown, { r: 1, c: 5, d: 'D', res: 'pop', br: 3, bc: 5 });
+  const s7 = applyMove(s6, bDown);
+  assert.equal(isGoal(s7, lv), true, '七步后应清场');
+  assert.equal(countBlocks(s7), 0);
+
+  const totals = firsts.map((m) => ({ m, total: astarTotal(lv, m) }));
+  const optimal = totals.filter((x) => x.total === 7);
+  assert.equal(optimal.length, 3, '第 17 关应有 3 个最优首步');
+  assert.deepEqual(
+    optimal.map((x) => `${x.m.r},${x.m.c}${x.m.d}`).sort(),
+    ['1,4D', '3,5U', '5,4U'],
+  );
+  for (const x of totals) {
+    assert.ok(
+      Number.isFinite(x.total) && x.total <= lv.limit,
+      `首步 ${x.m.r},${x.m.c}${x.m.d} 之后仍应能在 ${lv.limit} 步内通关`,
+    );
+  }
+  assert.equal(Math.max(...totals.map((x) => x.total)), 9);
+
+  const withoutWall = (wr, wc) =>
+    astarPar({ ...lv, rows: lv.rows.map((row, i) => (i === wr ? row.slice(0, wc) + '.' + row.slice(wc + 1) : row)) });
+  assert.equal(withoutWall(3, 2), 7, '拿掉 (3,2) 后仍要 7 步');
+  assert.equal(withoutWall(3, 3), 7, '拿掉 (3,3) 后仍要 7 步');
+  assert.equal(withoutWall(3, 4), 7, '拿掉 (3,4) 后仍要 7 步');
+  const noWalls17 = {
+    ...lv,
+    rows: lv.rows.map((row, r) => (r === 0 || r === 6 ? row : '#' + row.slice(1, 6).replace(/#/g, '.') + '#')),
+  };
+  assert.equal(astarPar(noWalls17), 6, '拆掉整排墙后 par 降为 6');
+}
+
+// ---- 4.18 第 18 关「挤一挤」 ----
+{
+  const lv = LEVELS[17];
+  const st = parse(lv.rows);
+  assert.equal(lv.id, 18);
+  assert.equal(lv.goal, 'clear');
+  assert.equal(countBlocks(st), 8);
+
+  const counts = { 1: 0, 2: 0, 3: 0, 4: 0 };
+  for (const v of st.c) if (v > 0) counts[v]++;
+  assert.deepEqual(counts, { 1: 2, 2: 2, 3: 2, 4: 2 }, '第 18 关应是 A2 B2 C2 D2');
+
+  const walls = [];
+  for (let r = 1; r <= 5; r++)
+    for (let c = 1; c <= 5; c++) if (at(st, r, c) === -1) walls.push(`${r},${c}`);
+  assert.deepEqual(walls, ['2,2', '2,4', '4,3'], '第 18 关应有三格内墙');
+
+  assert.equal(astarPar(lv), 8);
+
+  const firsts = legalMoves(st);
+  assert.equal(firsts.length, 15, '第 18 关开局应有 15 个合法走法');
+  assert.equal(firsts.filter((m) => m.res === 'pop').length, 0, '开局没有现成的配对');
+
+  // 绿块借左边的蓝块停在 (3,2)，落到最下面会合；蓝块横消打开中路
+  const cLeft = moveFrom(st, 3, 3, 'L');
+  assert.deepEqual(cLeft, { r: 3, c: 3, d: 'L', res: 'move', tr: 3, tc: 2 });
+  const s1 = applyMove(st, cLeft);
+
+  const cPop = moveFrom(s1, 3, 2, 'D');
+  assert.deepEqual(cPop, { r: 3, c: 2, d: 'D', res: 'pop', br: 5, bc: 2 });
+  const s2 = applyMove(s1, cPop);
+
+  const bPop = moveFrom(s2, 3, 1, 'R');
+  assert.deepEqual(bPop, { r: 3, c: 1, d: 'R', res: 'pop', br: 3, bc: 5 });
+  const s3 = applyMove(s2, bPop);
+
+  const aDown = moveFrom(s3, 1, 3, 'D');
+  assert.deepEqual(aDown, { r: 1, c: 3, d: 'D', res: 'move', tr: 3, tc: 3 });
+  const s4 = applyMove(s3, aDown);
+
+  const aRight = moveFrom(s4, 3, 3, 'R');
+  assert.deepEqual(aRight, { r: 3, c: 3, d: 'R', res: 'move', tr: 3, tc: 5 });
+  const s5 = applyMove(s4, aRight);
+
+  const aPop = moveFrom(s5, 2, 5, 'D');
+  assert.deepEqual(aPop, { r: 2, c: 5, d: 'D', res: 'pop', br: 3, bc: 5 });
+  const s6 = applyMove(s5, aPop);
+
+  const dRight = moveFrom(s6, 5, 3, 'R');
+  assert.deepEqual(dRight, { r: 5, c: 3, d: 'R', res: 'move', tr: 5, tc: 5 });
+  const s7 = applyMove(s6, dRight);
+
+  const dDown = moveFrom(s7, 1, 5, 'D');
+  assert.deepEqual(dDown, { r: 1, c: 5, d: 'D', res: 'pop', br: 5, bc: 5 });
+  const s8 = applyMove(s7, dDown);
+  assert.equal(isGoal(s8, lv), true, '八步后应清场');
+  assert.equal(countBlocks(s8), 0);
+
+  const totals = firsts.map((m) => ({ m, total: astarTotal(lv, m) }));
+  const optimal = totals.filter((x) => x.total === 8);
+  assert.equal(optimal.length, 3, '第 18 关应有 3 个最优首步');
+  assert.deepEqual(
+    optimal.map((x) => `${x.m.r},${x.m.c}${x.m.d}`).sort(),
+    ['3,3L', '5,2U', '5,3R'],
+  );
+  for (const x of totals) {
+    assert.ok(
+      Number.isFinite(x.total) && x.total <= lv.limit,
+      `首步 ${x.m.r},${x.m.c}${x.m.d} 之后仍应能在 ${lv.limit} 步内通关`,
+    );
+  }
+  assert.equal(Math.max(...totals.map((x) => x.total)), 11);
+
+  const withoutWall = (wr, wc) =>
+    astarPar({ ...lv, rows: lv.rows.map((row, i) => (i === wr ? row.slice(0, wc) + '.' + row.slice(wc + 1) : row)) });
+  assert.equal(withoutWall(2, 2), 8, '拿掉 (2,2) 后仍要 8 步');
+  assert.equal(withoutWall(2, 4), 7, '拿掉 (2,4) 后中路提前打开，par 降为 7');
+  assert.equal(withoutWall(4, 3), 8, '拿掉 (4,3) 后仍要 8 步');
+  const noWalls18 = {
+    ...lv,
+    rows: lv.rows.map((row, r) => (r === 0 || r === 6 ? row : '#' + row.slice(1, 6).replace(/#/g, '.') + '#')),
+  };
+  assert.equal(astarPar(noWalls18), 7, '拆掉整组墙后 par 降为 7');
+}
+
 // ---- 5. 关卡参数：par 必须等于最优解，且 par < 上限 ----
 // 1–8 关用 src BFS 精确穷举；9 关起块数变多，改用已校准的 A*（路径仍在下面的
 // 单关断言里用 src/game.js 逐步回放，保证"设计时能过 = 游戏里能过"）。
@@ -977,5 +1468,6 @@ console.log(
     `第 7 关 13 个首步全部仍能在 8 步内通关，拿掉任意一格墙 par 都退化为 6；` +
     `第 8 关 13 个首步全部仍能在 9 步内通关，先动 A(3,4) 会拆掉 C 的停车位、退化为 8，拿掉任一格墙 par 都退化为 7；` +
     `第 9–12 关所有首步都在上限内可通关；第 9、10、11、12 关拆掉整组墙后 par 分别降为 5/5/5/4；` +
+    `第 13–18 关所有首步都在上限内可通关；第 13–18 关最优首步分别为 4/4/3/2/3/3 个，拆掉整组墙后 par 分别降为 7/5/6/6/6/7；` +
     `与 research 引擎对拍 ${compared} 个状态一致。`,
 );
