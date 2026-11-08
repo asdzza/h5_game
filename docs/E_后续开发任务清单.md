@@ -182,14 +182,14 @@
 **产出**
 
 - 关卡 JSON schema 定稿（GDD §10.4）。
-- `tools/verify.mjs`：复用 `research/solver_fast.mjs`，批量校验并回写 `par`。
-- `tools/gen.mjs`：随机生成盘面 → 求解 → 按规则过滤（见 §2）。
-- `levels.js` 改为由 `levels.json` 生成（构建期，不做运行时加载）。
+- `tools/verify.mjs`：**已完成**。直接跑 `src/game.js`（不绕 `research/` 引擎，避免双份规则漂移），逐关检查外圈/方块数/清色奇偶、在声明的 par 步内必须真的能通关、par ≤ 上限且至少留 1 步；`--first` 给出首步统计，`--dead` 扫死局。失败时打印关卡号并以退出码 1 结束。
+- `tools/gen.mjs`：随机生成盘面 → 求解 → 按规则过滤（见 §2）。**待做**。
+- `levels.js` 改为由 `levels.json` 生成（构建期，不做运行时加载）。**待做**。
 
 **验收**
 
-- [ ] `node tools/verify.mjs` 能跑完当前 6 关，输出 `levels=6 failed=0`。
-- [ ] 故意改坏一关（如把某颜色改成奇数个），脚本能报错并指出关卡号。
+- [x] `node tools/verify.mjs` 能跑完当前 6 关，输出 `levels=6 failed=0`。
+- [x] 故意改坏一关（把第 6 关最后一块 C 改成空）→ 输出 `# 6 FAIL ... 清场模式方块数 5 是奇数` / `声明的 par=6 步内无解`，退出码 1，并指出关卡号。
 - [ ] 生成器一次能产出 ≥ 20 个候选，且每个都有 par。
 
 **风险**：求解器对 12 块盘面可能超时。设 `cap=300000`，超时即丢弃，不硬等。

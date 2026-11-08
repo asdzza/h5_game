@@ -96,7 +96,11 @@ npm run dev            # 或 node tools/serve.mjs → http://localhost:5173
 # 规则自测：第 1 关期望 + 与 research 引擎对拍
 npm test               # 或 node tools/test_rules.mjs
 
-# 全量校验 13 个关卡（会重写 levels_report.json）
+# 游戏关卡体检（结构 / par / 步数预算；加 --first 看首步，加 --dead 扫死局）
+npm run verify         # 或 node tools/verify.mjs --first
+# 期望最后一行：levels=6 failed=0
+
+# 全量校验 13 个研究用关卡（会重写 levels_report.json）
 node research/verify.mjs
 # 期望最后一行：levels=13 failed=0
 
