@@ -36,6 +36,12 @@ const LAYOUTS = {
   'twin-row': [[2, 2], [2, 4]],
   'twin-near': [[3, 2], [3, 3]],
   'twin-far': [[1, 3], [5, 3]],
+  // 三墙
+  'tri-l': [[2, 2], [3, 2], [2, 3]],
+  'tri-bar': [[3, 2], [3, 3], [3, 4]],
+  'tri-step': [[2, 2], [3, 3], [4, 3]],
+  'tri-corner': [[2, 2], [4, 4], [2, 4]],
+  'tri-spread': [[2, 2], [4, 3], [2, 5]],
 };
 
 const name = process.argv[2] || 'single-mid';
@@ -113,7 +119,19 @@ for (let t = 0; t < TRIES; t++) {
   const rows = g.map((row) => row.join(''));
   const st0 = parse(rows);
 
-  if (!ALLOW_OPEN && genA(st0).some((m) => m.res === 'pop')) { stats.openPop++; continue; }
+  const openMoves = genA(st0).filter((m) => m.res === 'pop');
+  if (process.env.S3_REQUIRE_OPEN === '1' && openMoves.length === 0) { stats.openPop++; continue; }
+  if (openMoves.length) {
+    if (!ALLOW_OPEN) { stats.openPop++; continue; }
+    // 允许开局有现成对，但默认只允许"非目标色"的诱惑对；目标色白送一对会削平难度
+    if (process.env.S3_OPEN_TARGET !== '1') {
+      const targetPop = openMoves.some((m) => {
+        const v = st0.c[m.r * W + m.c];
+        return v === TARGET_COLOR;
+      });
+      if (targetPop) { stats.openPop++; continue; }
+    }
+  }
 
   const r0 = solve(st0);
   if (!r0 || r0.len !== TARGET) continue;
@@ -134,6 +152,21 @@ for (let t = 0; t < TRIES; t++) {
   if (recoverable !== firsts.length) { stats.first++; continue; }
   if (opt < 1 || opt > 5) { stats.first++; continue; }
   if (punished < 1) { stats.first++; continue; }
+
+  // 可选：非目标色"陷阱对"——开局有现成非目标对可消，但最优解不消它，
+  // 且真去消它恰好多花 1 步。用于 #21「别消错」。
+  if (process.env.S3_OPEN_TRAP === '1') {
+    if (openMoves.length === 0) { stats.openPop++; continue; }
+    const optimalNonTargetPop = r0.path.some(
+      (p) => p.move.res === 'pop' && p.before.c[p.move.r * W + p.move.c] !== TARGET_COLOR,
+    );
+    if (optimalNonTargetPop) { stats.openTrap = (stats.openTrap || 0) + 1; continue; }
+    const openTotals = openMoves.map((m) => {
+      const r = solve(applyA(st0, m));
+      return r ? 1 + r.len : Infinity;
+    });
+    if (!openTotals.every((n) => n > TARGET)) { stats.openTrap = (stats.openTrap || 0) + 1; continue; }
+  }
 
   // 墙：两格以上时整组拆掉必须变快；且至少一格被当刹车用过或单独拿掉会变慢
   let rowsNoWalls = rows;
@@ -163,7 +196,9 @@ for (let t = 0; t < TRIES; t++) {
   // 每种非目标色整色拿掉，par 必须变化（否则这种颜色就是装饰）
   const loadDetail = [];
   let loadOk = true;
-  const otherColors = [...new Set(rows.join('').replace(/[^B-E]/g, ''))];
+  const otherColors = [...new Set(rows.join('').replace(/[^A-E]/g, ''))].filter(
+    (ch) => ch !== TARGET_CH,
+  );
   for (const ch of otherColors) {
     const rows2 = rows.map((row) => row.replace(new RegExp(ch, 'g'), '.'));
     const p2 = parOf(parse(rows2));
@@ -189,18 +224,20 @@ for (let t = 0; t < TRIES; t++) {
     else if (p.after.c[nr * W + nc] > 0) blockStops++;
   }
 
+  if (process.env.S3_BLOCKSTOP === '1' && blockStops === 0) { stats.block = (stats.block || 0) + 1; continue; }
+
   stats.accept++;
-  results.push({ rows, path: r0.path, opt, punished, firsts: firsts.length, loadDetail, blockStops, wallStops, allPar, wallDetail });
-  if (results.length >= 16) break;
+  results.push({ rows, path: r0.path, opt, punished, firsts: firsts.length, loadDetail, blockStops, wallStops, allPar, wallDetail, openPops: openMoves.map((m) => `${String.fromCharCode(64 + st0.c[m.r * W + m.c])}(${m.r},${m.c})`) });
+  if (results.length >= Number(process.env.S3_MAX || 16)) break;
 }
 
 console.log(`\n布局 ${name}（${WALLS.length} 墙）目标色 ${TARGET_CH} par ${TARGET} 上限 ${LIMIT} 块 ${COLORS}`);
-console.log(`  扫描 ${TRIES} 次：开局可消 ${stats.openPop}，par 命中 ${stats.par}，首步不合 ${stats.first}，有装饰色 ${stats.load}，墙不合 ${stats.wall}，通过 ${stats.accept}`);
+console.log(`  扫描 ${TRIES} 次：开局可消 ${stats.openPop}，par 命中 ${stats.par}，首步不合 ${stats.first}，有装饰色 ${stats.load}，墙不合 ${stats.wall}，陷阱不合 ${stats.openTrap || 0}，块停不合 ${stats.block || 0}，通过 ${stats.accept}`);
 
 const DIR = { U: '上', D: '下', L: '左', R: '右' };
 for (const c of results) {
   console.log(
-    `\n=== par ${TARGET} | 首步 ${c.firsts}（保持 ${c.opt}，走错 ${c.punished}）| 墙 ${c.wallDetail.join(' ')} | 拆整组→${c.allPar} | 墙停 ${c.wallStops} 块停 ${c.blockStops} ===`,
+    `\n=== par ${TARGET} | 首步 ${c.firsts}（保持 ${c.opt}，走错 ${c.punished}）| 墙 ${c.wallDetail.join(' ')} | 拆整组→${c.allPar} | 墙停 ${c.wallStops} 块停 ${c.blockStops} | 开局现成对 ${c.openPops.join(' ') || '无'} ===`,
   );
   c.rows.forEach((r) => console.log('  ' + r));
   console.log('  非目标块载荷: ' + c.loadDetail.join(' '));

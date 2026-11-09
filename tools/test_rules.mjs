@@ -61,6 +61,7 @@ const emptyCell = (lv, r, c) => ({
   ...lv,
   rows: lv.rows.map((row, i) => (i === r ? row.slice(0, c) + '.' + row.slice(c + 1) : row)),
 });
+const removeColor = (lv, ch) => ({ ...lv, rows: lv.rows.map((row) => row.split(ch).join('.')) });
 const solveLevel = (lv) => (lv.id <= 8 ? solve(lv) : astarPar(lv));
 
 // ---- 1. 第 1 关：拖动 + 同色消除 + 异色挡路（原第 1、2 关合并） ----
@@ -1528,6 +1529,145 @@ const solveLevel = (lv) => (lv.id <= 8 ? solve(lv) : astarPar(lv));
   assert.equal(astarPar(emptyCell(emptyCell(lv, 1, 3), 5, 3)), 3, '拆掉整组墙后 par 降为 3');
 }
 
+// ---- 4.21 第 21–25 关：S3 清色产线 ----
+{
+  const cases = [
+    {
+      id: 21,
+      target: 1,
+      blocks: { 1: 4, 2: 2, 3: 2 },
+      walls: ['3,2', '3,4'],
+      par: 5,
+      limit: 8,
+      firsts: 13,
+      optimal: 3,
+      worst: 6,
+      openPops: 0,
+      loads: { B: 3, C: 4 },
+      noWallsPar: 4,
+      path: [[2, 3, 'L'], [2, 1, 'D'], [1, 1, 'D'], [2, 1, 'R'], [1, 3, 'D']],
+    },
+    {
+      id: 22,
+      target: 1,
+      blocks: { 1: 4, 2: 1, 3: 1, 4: 2 },
+      walls: ['2,2', '2,5', '4,3'],
+      par: 5,
+      limit: 8,
+      firsts: 14,
+      optimal: 3,
+      worst: 7,
+      openPops: 0,
+      loads: { B: 3, C: 3, D: 4 },
+      noWallsPar: 4,
+      path: [[2, 3, 'D'], [2, 4, 'L'], [1, 4, 'D'], [4, 2, 'L'], [1, 1, 'D']],
+    },
+    {
+      id: 23,
+      target: 3,
+      blocks: { 1: 2, 2: 1, 3: 4, 4: 1 },
+      walls: ['2,2', '4,4'],
+      par: 5,
+      limit: 7,
+      firsts: 14,
+      optimal: 5,
+      worst: 6,
+      openPops: 0,
+      loads: { A: 4, B: 4, D: 4 },
+      noWallsPar: 4,
+      path: [[3, 2, 'D'], [5, 2, 'R'], [4, 5, 'D'], [1, 4, 'D'], [1, 1, 'R']],
+    },
+    {
+      id: 24,
+      target: 1,
+      blocks: { 1: 6, 2: 2, 3: 2 },
+      walls: ['2,2', '2,5', '4,3'],
+      par: 6,
+      limit: 8,
+      firsts: 19,
+      optimal: 4,
+      worst: 8,
+      openPops: 2,
+      loads: { B: 5, C: 5 },
+      noWallsPar: 4,
+      path: [[3, 2, 'R'], [3, 1, 'R'], [2, 1, 'D'], [3, 5, 'D'], [1, 4, 'D'], [1, 2, 'R']],
+    },
+    {
+      id: 25,
+      target: 1,
+      blocks: { 1: 4, 2: 2, 3: 2 },
+      walls: ['3,2', '3,4'],
+      par: 4,
+      limit: 7,
+      firsts: 17,
+      optimal: 2,
+      worst: 6,
+      openPops: 0,
+      loads: { B: 3, C: 3 },
+      noWallsPar: 3,
+      path: [[5, 2, 'U'], [5, 1, 'R'], [1, 3, 'D'], [1, 1, 'R']],
+    },
+  ];
+
+  for (const cs of cases) {
+    const lv = LEVELS[cs.id - 1];
+    const st = parse(lv.rows);
+    assert.equal(lv.id, cs.id);
+    assert.equal(lv.goal, 'color');
+    assert.equal(lv.targetColor, cs.target);
+    assert.equal(countBlocks(st), Object.values(cs.blocks).reduce((a, b) => a + b, 0));
+
+    const counts = {};
+    for (const v of st.c) if (v > 0) counts[v] = (counts[v] || 0) + 1;
+    assert.deepEqual(counts, cs.blocks, `第 ${cs.id} 关颜色配比不对`);
+
+    const walls = [];
+    for (let r = 1; r <= 5; r++)
+      for (let c = 1; c <= 5; c++) if (at(st, r, c) === -1) walls.push(`${r},${c}`);
+    assert.deepEqual(walls, cs.walls, `第 ${cs.id} 关内墙位置不对`);
+
+    assert.equal(astarPar(lv), cs.par);
+    assert.equal(lv.par, cs.par);
+    assert.equal(lv.limit, cs.limit);
+
+    const firsts = legalMoves(st);
+    assert.equal(firsts.length, cs.firsts, `第 ${cs.id} 关合法首步数不对`);
+    assert.equal(firsts.filter((m) => m.res === 'pop').length, cs.openPops, `第 ${cs.id} 关开局现成对数不对`);
+    const totals = firsts.map((m) => ({ m, total: astarTotal(lv, m) }));
+    for (const x of totals) {
+      assert.ok(
+        Number.isFinite(x.total) && x.total <= lv.limit,
+        `第 ${cs.id} 关首步 ${x.m.r},${x.m.c}${x.m.d} 之后仍应能在 ${lv.limit} 步内通关`,
+      );
+    }
+    assert.equal(totals.filter((x) => x.total === cs.par).length, cs.optimal, `第 ${cs.id} 关最优首步数不对`);
+    assert.equal(Math.max(...totals.map((x) => x.total)), cs.worst, `第 ${cs.id} 关最差首步应为 ${cs.worst}`);
+
+    // 逐步回放：src/game.js 与 research A* 的解法一致
+    let cur = st;
+    for (const [r, c, d] of cs.path) {
+      const m = moveFrom(cur, r, c, d);
+      assert.ok(m, `第 ${cs.id} 关路径 ${r},${c}${d} 应为合法走法`);
+      cur = applyMove(cur, m);
+    }
+    assert.equal(isGoal(cur, lv), true, `第 ${cs.id} 关按路径应通关`);
+
+    // 每种非目标色整色拿掉后 par 必须变化（不能有装饰色）
+    for (const [ch, expected] of Object.entries(cs.loads)) {
+      assert.equal(astarPar(removeColor(lv, ch)), expected, `第 ${cs.id} 关拿掉整色 ${ch} 后 par 应变为 ${expected}`);
+    }
+
+    // 拆掉整组内墙后 par 必须下降
+    let noWalls = lv;
+    for (const w of cs.walls) {
+      const [r, c] = w.split(',').map(Number);
+      noWalls = emptyCell(noWalls, r, c);
+    }
+    assert.equal(astarPar(noWalls), cs.noWallsPar, `第 ${cs.id} 关拆掉整组墙后 par 应变为 ${cs.noWallsPar}`);
+    assert.ok(cs.noWallsPar < cs.par, `第 ${cs.id} 关墙必须承重`);
+  }
+}
+
 // ---- 5. 关卡参数：par 必须等于最优解，且 par < 上限 ----
 // 1–8 关用 src BFS 精确穷举；9 关起块数变多，改用已校准的 A*（路径仍在下面的
 // 单关断言里用 src/game.js 逐步回放，保证"设计时能过 = 游戏里能过"）。
@@ -1600,5 +1740,6 @@ console.log(
     `第 9–12 关所有首步都在上限内可通关；第 9、10、11、12 关拆掉整组墙后 par 分别降为 5/5/5/4；` +
     `第 13–18 关所有首步都在上限内可通关；第 13–18 关最优首步分别为 4/4/3/2/3/3 个，拆掉整组墙后 par 分别降为 7/5/6/6/6/7；` +
     `第 19–20 关所有首步都在上限内可通关；第 19 关 5 个最优首步、拆墙后 par 不变；第 20 关 3 个最优首步、拆整组墙后 par 降为 3；两关的非目标块拿掉后 par 都会变；` +
+    `第 21–25 关所有首步都在上限内可通关，最优首步分别为 3/3/5/4/2 个，每种非目标色整色拿掉后 par 都变，拆整组墙后 par 分别降为 4/4/4/4/3；` +
     `与 research 引擎对拍 ${compared} 个状态一致。`,
 );
