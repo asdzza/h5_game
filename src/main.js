@@ -39,6 +39,7 @@ const elSolutionList = document.getElementById('solution-list');
 const btnIntroOk = document.getElementById('intro-ok');
 const btnHelp = document.getElementById('help');
 const btnSound = document.getElementById('sound');
+const btnTheme = document.getElementById('theme');
 const btnLevels = document.getElementById('levels-btn');
 const btnLevelsClose = document.getElementById('levels-close');
 const btnUndo = document.getElementById('undo');
@@ -54,8 +55,13 @@ const btnFailRestart = document.getElementById('fail-restart');
 const audio = createAudio();
 const INTRO_KEY = 'zgz.seenIntro.v2';
 const SAVE_KEY = 'zgz.save.v2';
+const THEME_KEY = 'zgz.theme';
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
 const COLOR_NAMES = ['红', '蓝', '绿', '黄', '紫'];
+const metaTheme = document.querySelector('meta[name="theme-color"]');
+
+// 首屏脚本已经把 data-theme 写进 <html>，这里只接管状态与按钮
+let theme = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
 
 function readSave() {
   try {
@@ -353,6 +359,30 @@ function syncSound() {
   btnSound.setAttribute('aria-pressed', String(!muted));
 }
 
+function syncTheme({ persist = false, sound = false } = {}) {
+  const light = theme === 'light';
+  document.documentElement.dataset.theme = light ? 'light' : 'dark';
+  if (metaTheme) metaTheme.setAttribute('content', light ? '#f2f6fc' : '#0b1020');
+  btnTheme.textContent = light ? '☀' : '☾';
+  const label = light ? '切换到夜间模式' : '切换到日间模式';
+  btnTheme.setAttribute('aria-label', label);
+  btnTheme.title = label;
+  btnTheme.setAttribute('aria-pressed', String(light));
+  if (persist) {
+    try {
+      localStorage.setItem(THEME_KEY, theme);
+    } catch {
+      /* 隐私模式忽略 */
+    }
+  }
+  if (sound) audio.play('ui');
+}
+
+function toggleTheme() {
+  theme = theme === 'light' ? 'dark' : 'light';
+  syncTheme({ persist: true, sound: true });
+}
+
 function resize() {
   const rect = stage.getBoundingClientRect();
   const cssW = Math.max(1, Math.floor(rect.width));
@@ -487,7 +517,7 @@ function undo() {
 }
 
 function tick(now) {
-  draw(ctx, layout, state, { drag, anim, now });
+  draw(ctx, layout, state, { drag, anim, now, theme });
   requestAnimationFrame(tick);
 }
 
@@ -544,6 +574,7 @@ btnSound.addEventListener('click', () => {
   syncSound();
   if (!audio.isMuted()) audio.play('ui');
 });
+btnTheme.addEventListener('click', toggleTheme);
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (!elSolution.classList.contains('hidden')) {
@@ -560,6 +591,7 @@ document.addEventListener('keydown', (e) => {
 window.addEventListener('pointerdown', () => audio.unlock(), { once: true });
 
 syncSound();
+syncTheme();
 loadLevel(levelIndex);
 if (!introSeen()) openIntro();
 
@@ -600,6 +632,14 @@ window.__zgz = {
   get anim() {
     return anim;
   },
+  get theme() {
+    return theme;
+  },
+  toggleTheme,
+  setTheme(next) {
+    theme = next === 'light' ? 'light' : 'dark';
+    syncTheme({ persist: true });
+  },
   commit,
   undo,
   loadLevel,
@@ -617,6 +657,6 @@ window.__zgz = {
   save,
   // 手动渲染一帧：用于不可见窗口（rAF 被冻结）时截图/取色排查
   redraw(now = performance.now()) {
-    draw(ctx, layout, state, { drag, anim, now });
+    draw(ctx, layout, state, { drag, anim, now, theme });
   },
 };

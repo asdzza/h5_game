@@ -7,6 +7,20 @@
       content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"
     />
     <meta name="theme-color" content="#0b1020" />
+    <script>
+      // 在首屏绘制前应用主题，避免刷新时闪一下白/黑
+      (() => {
+        let theme = 'dark';
+        try {
+          theme = localStorage.getItem('zgz.theme') === 'light' ? 'light' : 'dark';
+        } catch {
+          /* 隐私模式 */
+        }
+        document.documentElement.dataset.theme = theme;
+        const meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', theme === 'light' ? '#f2f6fc' : '#0b1020');
+      })();
+    </script>
     <title>撞个正着</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
@@ -20,6 +34,7 @@
         </div>
         <div class="hud-right">
           <span id="moves">0 / 6</span>
+          <button id="theme" class="icon-btn" type="button" aria-label="切换到日间模式" title="切换到日间模式" aria-pressed="false">☾</button>
           <button id="levels-btn" class="icon-btn" type="button" aria-label="关卡列表" title="关卡列表">▦</button>
           <button id="help" class="icon-btn" type="button" aria-label="查看玩法">?</button>
           <button id="sound" class="icon-btn" type="button" aria-label="关闭音效" aria-pressed="true">🔊</button>
