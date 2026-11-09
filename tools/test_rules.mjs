@@ -57,6 +57,10 @@ const astarTotal = (lv, m) => {
   const r = aStar(applyA(rParse(lv.rows), m), 'A', 800000, lv.goal === 'color' ? { targetColor: lv.targetColor } : {});
   return r ? 1 + r.len : Infinity;
 };
+const emptyCell = (lv, r, c) => ({
+  ...lv,
+  rows: lv.rows.map((row, i) => (i === r ? row.slice(0, c) + '.' + row.slice(c + 1) : row)),
+});
 const solveLevel = (lv) => (lv.id <= 8 ? solve(lv) : astarPar(lv));
 
 // ---- 1. 第 1 关：拖动 + 同色消除 + 异色挡路（原第 1、2 关合并） ----
@@ -1398,6 +1402,132 @@ const solveLevel = (lv) => (lv.id <= 8 ? solve(lv) : astarPar(lv));
   assert.equal(astarPar(noWalls18), 7, '拆掉整组墙后 par 降为 7');
 }
 
+// ---- 4.19 第 19 关「只要红色·入门」 ----
+{
+  const lv = LEVELS[18];
+  const st = parse(lv.rows);
+  assert.equal(lv.id, 19);
+  assert.equal(lv.goal, 'color');
+  assert.equal(lv.targetColor, 1);
+  assert.equal(countBlocks(st), 6);
+
+  const counts = { 1: 0, 2: 0, 3: 0 };
+  for (const v of st.c) if (v > 0) counts[v]++;
+  assert.deepEqual(counts, { 1: 4, 2: 1, 3: 1 }, '第 19 关应是红 4 + 蓝 1 + 绿 1');
+
+  const walls = [];
+  for (let r = 1; r <= 5; r++)
+    for (let c = 1; c <= 5; c++) if (at(st, r, c) === -1) walls.push(`${r},${c}`);
+  assert.deepEqual(walls, ['3,3'], '第 19 关应有一格内墙');
+
+  assert.equal(astarPar(lv), 3);
+
+  // 只清红：通关时蓝、绿两块原地不动
+  const aPop = moveFrom(st, 1, 4, 'D');
+  assert.deepEqual(aPop, { r: 1, c: 4, d: 'D', res: 'pop', br: 5, bc: 4 });
+  const s1 = applyMove(st, aPop);
+
+  const cRight = moveFrom(s1, 3, 1, 'R');
+  assert.deepEqual(cRight, { r: 3, c: 1, d: 'R', res: 'move', tr: 3, tc: 2 }, '绿块应停在 (3,2) 墙边');
+  const s2 = applyMove(s1, cRight);
+
+  const aDown = moveFrom(s2, 1, 1, 'D');
+  assert.deepEqual(aDown, { r: 1, c: 1, d: 'D', res: 'pop', br: 5, bc: 1 });
+  const s3 = applyMove(s2, aDown);
+  assert.equal(isGoal(s3, lv), true, '三步后红色应全部消失');
+  assert.equal(countBlocks(s3), 2, '通关时蓝块和绿块都还在');
+
+  const firsts = legalMoves(st);
+  const totals = firsts.map((m) => ({ m, total: astarTotal(lv, m) }));
+  const optimal = totals.filter((x) => x.total === 3);
+  assert.equal(optimal.length, 5, '第 19 关应有 5 个最优首步');
+  assert.deepEqual(
+    optimal.map((x) => `${x.m.r},${x.m.c}${x.m.d}`).sort(),
+    ['1,4D', '3,1R', '5,1R', '5,4L', '5,4U'],
+  );
+  for (const x of totals) {
+    assert.ok(
+      Number.isFinite(x.total) && x.total <= lv.limit,
+      `首步 ${x.m.r},${x.m.c}${x.m.d} 之后仍应能在 ${lv.limit} 步内通关`,
+    );
+  }
+  assert.ok(Math.max(...totals.map((x) => x.total)) <= 4, '第 19 关走错一步最多也只多花一步');
+
+  // 蓝、绿各只有一块：永远消不掉，但两块都影响最优解
+  assert.equal(astarPar(emptyCell(lv, 1, 2)), 2, '拿掉蓝块后可以直接竖消，par 降为 2');
+  assert.equal(astarPar(emptyCell(lv, 3, 1)), 2, '拿掉绿块后可以直接竖消，par 降为 2');
+
+  // 中间墙只当停车位：拿掉后仍要 3 步，但解法里绿块正停在这格墙边
+  assert.equal(astarPar(emptyCell(lv, 3, 3)), 3, '拿掉 (3,3) 后 par 仍是 3');
+}
+
+// ---- 4.20 第 20 关「红块两对」 ----
+{
+  const lv = LEVELS[19];
+  const st = parse(lv.rows);
+  assert.equal(lv.id, 20);
+  assert.equal(lv.goal, 'color');
+  assert.equal(lv.targetColor, 1);
+  assert.equal(countBlocks(st), 6);
+
+  const counts = { 1: 0, 2: 0, 3: 0 };
+  for (const v of st.c) if (v > 0) counts[v]++;
+  assert.deepEqual(counts, { 1: 4, 2: 1, 3: 1 }, '第 20 关应是红 4 + 蓝 1 + 绿 1');
+
+  const walls = [];
+  for (let r = 1; r <= 5; r++)
+    for (let c = 1; c <= 5; c++) if (at(st, r, c) === -1) walls.push(`${r},${c}`);
+  assert.deepEqual(walls, ['1,3', '5,3'], '第 20 关应有两格内墙');
+
+  assert.equal(astarPar(lv), 4);
+
+  const firsts0 = legalMoves(st);
+  assert.equal(firsts0.filter((m) => m.res === 'pop').length, 0, '第 20 关开局没有现成的配对');
+
+  // 蓝块先让开，红块下落；绿块再把左下红块刹在第三行
+  const bLeft = moveFrom(st, 2, 4, 'L');
+  assert.deepEqual(bLeft, { r: 2, c: 4, d: 'L', res: 'move', tr: 2, tc: 3 }, '蓝块应停在绿块旁边');
+  const s1 = applyMove(st, bLeft);
+
+  const aPop = moveFrom(s1, 1, 4, 'D');
+  assert.deepEqual(aPop, { r: 1, c: 4, d: 'D', res: 'pop', br: 5, bc: 4 });
+  const s2 = applyMove(s1, aPop);
+
+  const aUp = moveFrom(s2, 5, 2, 'U');
+  assert.deepEqual(aUp, { r: 5, c: 2, d: 'U', res: 'move', tr: 3, tc: 2 }, '红块应被绿块刹在 (3,2)');
+  const s3 = applyMove(s2, aUp);
+
+  const aRight = moveFrom(s3, 3, 2, 'R');
+  assert.deepEqual(aRight, { r: 3, c: 2, d: 'R', res: 'pop', br: 3, bc: 5 });
+  const s4 = applyMove(s3, aRight);
+  assert.equal(isGoal(s4, lv), true, '四步后红色应全部消失');
+  assert.equal(countBlocks(s4), 2, '通关时蓝块和绿块都还在');
+
+  const totals = firsts0.map((m) => ({ m, total: astarTotal(lv, m) }));
+  const optimal = totals.filter((x) => x.total === 4);
+  assert.equal(optimal.length, 3, '第 20 关应有 3 个最优首步');
+  assert.deepEqual(
+    optimal.map((x) => `${x.m.r},${x.m.c}${x.m.d}`).sort(),
+    ['2,4L', '2,4R', '5,2U'],
+  );
+  for (const x of totals) {
+    assert.ok(
+      Number.isFinite(x.total) && x.total <= lv.limit,
+      `首步 ${x.m.r},${x.m.c}${x.m.d} 之后仍应能在 ${lv.limit} 步内通关`,
+    );
+  }
+  assert.ok(Math.max(...totals.map((x) => x.total)) <= 6, '第 20 关走错一步最多也只多花两步');
+
+  // 两块非目标块都不能少：蓝块是障碍，绿块是刹车
+  assert.equal(astarPar(emptyCell(lv, 2, 4)), 3, '拿掉蓝块后 par 降为 3');
+  assert.equal(astarPar(emptyCell(lv, 2, 2)), 5, '拿掉绿块后红块失去了停车点，par 升为 5');
+
+  // 两堵墙：拆整组后 par 降为 3；(5,3) 是实打实的捷径封堵
+  assert.equal(astarPar(emptyCell(lv, 5, 3)), 3, '拿掉 (5,3) 后底行横消捷径打开，par 降为 3');
+  assert.equal(astarPar(emptyCell(lv, 1, 3)), 4, '拿掉 (1,3) 后 par 不变');
+  assert.equal(astarPar(emptyCell(emptyCell(lv, 1, 3), 5, 3)), 3, '拆掉整组墙后 par 降为 3');
+}
+
 // ---- 5. 关卡参数：par 必须等于最优解，且 par < 上限 ----
 // 1–8 关用 src BFS 精确穷举；9 关起块数变多，改用已校准的 A*（路径仍在下面的
 // 单关断言里用 src/game.js 逐步回放，保证"设计时能过 = 游戏里能过"）。
@@ -1469,5 +1599,6 @@ console.log(
     `第 8 关 13 个首步全部仍能在 9 步内通关，先动 A(3,4) 会拆掉 C 的停车位、退化为 8，拿掉任一格墙 par 都退化为 7；` +
     `第 9–12 关所有首步都在上限内可通关；第 9、10、11、12 关拆掉整组墙后 par 分别降为 5/5/5/4；` +
     `第 13–18 关所有首步都在上限内可通关；第 13–18 关最优首步分别为 4/4/3/2/3/3 个，拆掉整组墙后 par 分别降为 7/5/6/6/6/7；` +
+    `第 19–20 关所有首步都在上限内可通关；第 19 关 5 个最优首步、拆墙后 par 不变；第 20 关 3 个最优首步、拆整组墙后 par 降为 3；两关的非目标块拿掉后 par 都会变；` +
     `与 research 引擎对拍 ${compared} 个状态一致。`,
 );
