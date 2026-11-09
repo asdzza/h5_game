@@ -8,6 +8,50 @@ const PALETTE = [
   { base: '#a855f7', light: '#c084fc', dark: '#7e22ce' },
 ];
 
+// 棋盘底板配色：方块主色始终不变，这里只控制台面与墙体
+const BOARD_THEME = {
+  dark: {
+    backFill: 'rgba(255,255,255,.035)',
+    backLine: 'rgba(255,255,255,.07)',
+    cellFill: 'rgba(255,255,255,.025)',
+    frame: ['#3b4a61', '#263244', '#17202e'],
+    frameLight: 'rgba(226,232,240,.16)',
+    frameShadow: 'rgba(0,0,0,.55)',
+    frameShine: 'rgba(255,255,255,.10)',
+    wall: ['#8494aa', '#5c6c82', '#334155'],
+    wallShadow: 'rgba(0,0,0,.45)',
+    wallStripe: 'rgba(15,23,42,.30)',
+    wallEdge: 'rgba(226,232,240,.50)',
+    wallTop: 'rgba(255,255,255,.28)',
+    blockShadow: 'rgba(0,0,0,.45)',
+    arrow: 'rgba(255,255,255,.5)',
+    dash: 'rgba(255,255,255,.45)',
+    target: 'rgba(255,255,255,.75)',
+    targetAlt: 'rgba(255,255,255,.5)',
+    ring: '#ffffff',
+  },
+  light: {
+    backFill: 'rgba(15,23,42,.035)',
+    backLine: 'rgba(15,23,42,.09)',
+    cellFill: 'rgba(15,23,42,.04)',
+    frame: ['#c7d3e2', '#aab9cb', '#8c9db2'],
+    frameLight: 'rgba(255,255,255,.75)',
+    frameShadow: 'rgba(15,23,42,.28)',
+    frameShine: 'rgba(255,255,255,.55)',
+    wall: ['#a3b1c2', '#8494a8', '#65758a'],
+    wallShadow: 'rgba(15,23,42,.22)',
+    wallStripe: 'rgba(15,23,42,.16)',
+    wallEdge: 'rgba(15,23,42,.34)',
+    wallTop: 'rgba(255,255,255,.55)',
+    blockShadow: 'rgba(15,23,42,.28)',
+    arrow: 'rgba(15,23,42,.5)',
+    dash: 'rgba(15,23,42,.42)',
+    target: 'rgba(15,23,42,.75)',
+    targetAlt: 'rgba(15,23,42,.45)',
+    ring: '#0f172a',
+  },
+};
+
 const easeOut = (t) => 1 - (1 - t) * (1 - t);
 const clamp01 = (t) => (t < 0 ? 0 : t > 1 ? 1 : t);
 
@@ -45,7 +89,7 @@ function roundRect(ctx, x, y, w, h, r) {
 }
 
 // 棋盘外圈：一整块深色石框，而不是 24 个暗淡的小方块
-function drawWallFrame(ctx, bx, by, cell, w, h) {
+function drawWallFrame(ctx, bx, by, cell, w, h, t) {
   const outerR = cell * 0.28;
   const innerR = cell * 0.14;
   const ix = bx + cell;
@@ -58,20 +102,20 @@ function drawWallFrame(ctx, bx, by, cell, w, h) {
   roundRectPath(ctx, bx, by, cell * w, cell * h, outerR);
   roundRectPath(ctx, ix, iy, iw, ih, innerR);
   const g = ctx.createLinearGradient(bx, by, bx, by + cell * h);
-  g.addColorStop(0, '#3b4a61');
-  g.addColorStop(0.55, '#263244');
-  g.addColorStop(1, '#17202e');
+  g.addColorStop(0, t.frame[0]);
+  g.addColorStop(0.55, t.frame[1]);
+  g.addColorStop(1, t.frame[2]);
   ctx.fillStyle = g;
   ctx.fill('evenodd');
 
   // 外沿高光 + 内沿阴影，让边框像一块有厚度的石头
-  ctx.strokeStyle = 'rgba(226,232,240,.16)';
+  ctx.strokeStyle = t.frameLight;
   ctx.lineWidth = Math.max(1, cell * 0.02);
   ctx.beginPath();
   roundRectPath(ctx, bx + 1, by + 1, cell * w - 2, cell * h - 2, outerR);
   ctx.stroke();
 
-  ctx.strokeStyle = 'rgba(0,0,0,.55)';
+  ctx.strokeStyle = t.frameShadow;
   ctx.lineWidth = Math.max(1, cell * 0.04);
   ctx.beginPath();
   roundRectPath(ctx, ix, iy, iw, ih, innerR);
@@ -79,7 +123,7 @@ function drawWallFrame(ctx, bx, by, cell, w, h) {
 
   // 顶部一道极淡的反光，避免整块边框死黑
   const shine = ctx.createLinearGradient(bx, by, bx, by + cell * 1.6);
-  shine.addColorStop(0, 'rgba(255,255,255,.10)');
+  shine.addColorStop(0, t.frameShine);
   shine.addColorStop(1, 'rgba(255,255,255,0)');
   ctx.fillStyle = shine;
   ctx.beginPath();
@@ -89,7 +133,7 @@ function drawWallFrame(ctx, bx, by, cell, w, h) {
 }
 
 // 内墙：亮一档的石块 + 斜纹，和空地支路一眼分开
-function drawWallTile(ctx, px, py, cell) {
+function drawWallTile(ctx, px, py, cell, t) {
   const inset = cell * 0.055;
   const size = cell - inset * 2;
   const x = px + inset;
@@ -97,14 +141,14 @@ function drawWallTile(ctx, px, py, cell) {
   const r = cell * 0.16;
 
   ctx.save();
-  ctx.shadowColor = 'rgba(0,0,0,.45)';
+  ctx.shadowColor = t.wallShadow;
   ctx.shadowBlur = cell * 0.1;
   ctx.shadowOffsetY = cell * 0.045;
 
   const g = ctx.createLinearGradient(x, y, x, y + size);
-  g.addColorStop(0, '#8494aa');
-  g.addColorStop(0.42, '#5c6c82');
-  g.addColorStop(1, '#334155');
+  g.addColorStop(0, t.wall[0]);
+  g.addColorStop(0.42, t.wall[1]);
+  g.addColorStop(1, t.wall[2]);
   ctx.fillStyle = g;
   roundRect(ctx, x, y, size, size, r);
   ctx.fill();
@@ -117,7 +161,7 @@ function drawWallTile(ctx, px, py, cell) {
   ctx.save();
   roundRect(ctx, x, y, size, size, r);
   ctx.clip();
-  ctx.strokeStyle = 'rgba(15,23,42,.30)';
+  ctx.strokeStyle = t.wallStripe;
   ctx.lineWidth = Math.max(1, cell * 0.035);
   for (let d = -size; d < size * 2; d += cell * 0.26) {
     ctx.beginPath();
@@ -127,12 +171,12 @@ function drawWallTile(ctx, px, py, cell) {
   }
   ctx.restore();
 
-  ctx.strokeStyle = 'rgba(226,232,240,.50)';
+  ctx.strokeStyle = t.wallEdge;
   ctx.lineWidth = Math.max(1, cell * 0.024);
   roundRect(ctx, x, y, size, size, r);
   ctx.stroke();
 
-  ctx.strokeStyle = 'rgba(255,255,255,.28)';
+  ctx.strokeStyle = t.wallTop;
   ctx.lineWidth = Math.max(1, cell * 0.018);
   ctx.beginPath();
   ctx.moveTo(x + r, y + cell * 0.055);
@@ -152,7 +196,7 @@ function hasFullWallRing(state) {
   return true;
 }
 
-function drawBlock(ctx, px, py, cell, colorIndex, opts = {}) {
+function drawBlock(ctx, px, py, cell, colorIndex, opts = {}, t = BOARD_THEME.dark) {
   const { scale = 1, alpha = 1, lift = 0 } = opts;
   const inset = cell * 0.075;
   const size = (cell - inset * 2) * scale;
@@ -165,7 +209,7 @@ function drawBlock(ctx, px, py, cell, colorIndex, opts = {}) {
   ctx.save();
   ctx.globalAlpha = alpha;
 
-  ctx.shadowColor = 'rgba(0,0,0,.45)';
+  ctx.shadowColor = t.blockShadow;
   ctx.shadowBlur = cell * 0.18;
   ctx.shadowOffsetY = cell * 0.07;
 
@@ -209,12 +253,12 @@ function cellKey(r, c) {
   return r + ',' + c;
 }
 
-function drawArrow(ctx, x0, y0, x1, y1, cell) {
+function drawArrow(ctx, x0, y0, x1, y1, cell, t) {
   const ang = Math.atan2(y1 - y0, x1 - x0);
   const head = cell * 0.22;
   ctx.save();
-  ctx.strokeStyle = 'rgba(255,255,255,.5)';
-  ctx.fillStyle = 'rgba(255,255,255,.5)';
+  ctx.strokeStyle = t.arrow;
+  ctx.fillStyle = t.arrow;
   ctx.lineWidth = Math.max(2, cell * 0.06);
   ctx.lineCap = 'round';
   ctx.beginPath();
@@ -234,14 +278,15 @@ export function draw(ctx, layout, state, fx = {}) {
   const { x: bx, y: by, cell, w, h, cssW, cssH } = layout;
   const now = fx.now ?? 0;
   const { anim, drag } = fx;
+  const t = BOARD_THEME[fx.theme] || BOARD_THEME.dark;
 
   ctx.clearRect(0, 0, cssW, cssH);
 
   // 背板
   const pad = cell * 0.18;
   ctx.save();
-  ctx.fillStyle = 'rgba(255,255,255,.035)';
-  ctx.strokeStyle = 'rgba(255,255,255,.07)';
+  ctx.fillStyle = t.backFill;
+  ctx.strokeStyle = t.backLine;
   ctx.lineWidth = 1;
   roundRect(ctx, bx - pad, by - pad, cell * w + pad * 2, cell * h + pad * 2, cell * 0.36);
   ctx.fill();
@@ -267,7 +312,7 @@ export function draw(ctx, layout, state, fx = {}) {
 
   // 格子与墙
   const ring = hasFullWallRing(state);
-  if (ring) drawWallFrame(ctx, bx, by, cell, w, h);
+  if (ring) drawWallFrame(ctx, bx, by, cell, w, h, t);
   for (let r = 0; r < h; r++) {
     for (let c = 0; c < w; c++) {
       const v = state.c[r * w + c];
@@ -275,9 +320,9 @@ export function draw(ctx, layout, state, fx = {}) {
       const py = by + r * cell;
       if (v === -1) {
         if (ring && (r === 0 || c === 0 || r === h - 1 || c === w - 1)) continue;
-        drawWallTile(ctx, px, py, cell);
+        drawWallTile(ctx, px, py, cell, t);
       } else {
-        ctx.fillStyle = 'rgba(255,255,255,.025)';
+        ctx.fillStyle = t.cellFill;
         roundRect(ctx, px + cell * 0.08, py + cell * 0.08, cell * 0.84, cell * 0.84, cell * 0.12);
         ctx.fill();
       }
@@ -293,7 +338,7 @@ export function draw(ctx, layout, state, fx = {}) {
       const px = bx + c * cell;
       const py = by + r * cell;
       const isDragged = drag && drag.r === r && drag.c === c;
-      drawBlock(ctx, px, py, cell, v, { scale: isDragged ? 1.05 : 1 });
+      drawBlock(ctx, px, py, cell, v, { scale: isDragged ? 1.05 : 1 }, t);
     }
   }
 
@@ -307,7 +352,7 @@ export function draw(ctx, layout, state, fx = {}) {
     const px = x0 + (x1 - x0) * animP;
     const py = y0 + (y1 - y0) * animP;
     const color = anim.before.c[m.r * anim.before.w + m.c];
-    drawBlock(ctx, px, py, cell, color, { scale: 1 + Math.sin(animP * Math.PI) * 0.03 });
+    drawBlock(ctx, px, py, cell, color, { scale: 1 + Math.sin(animP * Math.PI) * 0.03 }, t);
   }
 
   // 消除
@@ -330,16 +375,16 @@ export function draw(ctx, layout, state, fx = {}) {
     drawBlock(ctx, x0 + (x1 - x0) * travelP, y0 + (y1 - y0) * travelP, cell, color, {
       scale: 1 + Math.sin(Math.min(1, travelP) * Math.PI) * 0.05,
       alpha: 1 - ease,
-    });
+    }, t);
     drawBlock(ctx, bx + m.bc * cell, by + m.br * cell, cell, color, {
       scale: 1 + ease * 0.22,
       alpha: 1 - ease,
-    });
+    }, t);
 
     // 冲击环
     ctx.save();
     ctx.globalAlpha = (1 - ease) * 0.5;
-    ctx.strokeStyle = '#fff';
+    ctx.strokeStyle = t.ring;
     ctx.lineWidth = Math.max(1, cell * 0.035);
     ctx.beginPath();
     ctx.arc(bx + m.bc * cell + cell / 2, by + m.br * cell + cell / 2, cell * (0.2 + ease * 0.55), 0, Math.PI * 2);
@@ -353,7 +398,7 @@ export function draw(ctx, layout, state, fx = {}) {
     const k = Math.sin(p * Math.PI) * cell * 0.09;
     const [dr, dc] = { U: [-1, 0], D: [1, 0], L: [0, -1], R: [0, 1] }[anim.dir];
     const color = state.c[anim.r * w + anim.c];
-    drawBlock(ctx, bx + anim.c * cell + dc * k, by + anim.r * cell + dr * k, cell, color, {});
+    drawBlock(ctx, bx + anim.c * cell + dc * k, by + anim.r * cell + dr * k, cell, color, {}, t);
   }
 
   // 拖拽预览
@@ -371,7 +416,7 @@ export function draw(ctx, layout, state, fx = {}) {
         const ty = by + drag.move.tr * cell;
         ctx.save();
         ctx.setLineDash([cell * 0.08, cell * 0.07]);
-        ctx.strokeStyle = 'rgba(255,255,255,.45)';
+        ctx.strokeStyle = t.dash;
         ctx.lineWidth = Math.max(1.5, cell * 0.03);
         roundRect(ctx, tx + cell * 0.09, ty + cell * 0.09, cell * 0.82, cell * 0.82, cell * 0.2);
         ctx.stroke();
@@ -380,12 +425,12 @@ export function draw(ctx, layout, state, fx = {}) {
         const tx = bx + drag.move.bc * cell + cell / 2;
         const ty = by + drag.move.br * cell + cell / 2;
         ctx.save();
-        ctx.strokeStyle = 'rgba(255,255,255,.75)';
+        ctx.strokeStyle = t.target;
         ctx.lineWidth = Math.max(2, cell * 0.045);
         ctx.beginPath();
         ctx.arc(tx, ty, cell * 0.4, 0, Math.PI * 2);
         ctx.stroke();
-        ctx.strokeStyle = 'rgba(255,255,255,.5)';
+        ctx.strokeStyle = t.targetAlt;
         ctx.beginPath();
         ctx.moveTo(tx - cell * 0.12, ty);
         ctx.lineTo(tx + cell * 0.12, ty);
@@ -398,7 +443,7 @@ export function draw(ctx, layout, state, fx = {}) {
 
     // 方向箭头
     const len = cell * 0.72;
-    drawArrow(ctx, cx + dc * cell * 0.18, cy + dr * cell * 0.18, cx + dc * (cell * 0.18 + len), cy + dr * (cell * 0.18 + len), cell);
+    drawArrow(ctx, cx + dc * cell * 0.18, cy + dr * cell * 0.18, cx + dc * (cell * 0.18 + len), cy + dr * (cell * 0.18 + len), cell, t);
   }
 }
 
