@@ -80,6 +80,9 @@
    ├─ density.mjs             # 进展密度（A 17.9% vs B 47.8%）
    ├─ experiments.mjs         # 内墙/方块数/棋盘尺寸三组对照实验
    ├─ explore_c.mjs           # 方案 C 蒙特卡洛
+   ├─ s3_search.mjs           # S3 清色搜索（par / 首步 / 非目标色与墙的载荷）
+   ├─ s3_check.mjs            # 单盘面终检（逐块、逐墙拿掉）
+   ├─ s3_wallscan.mjs         # 固定方块布局枚举墙位
    └─ ...                     # 早期探索脚本（gen_*/search_*/explore*）
 ```
 
