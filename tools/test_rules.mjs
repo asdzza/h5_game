@@ -2048,6 +2048,62 @@ const solveLevel = (lv) => (lv.id <= 8 ? solve(lv) : astarPar(lv));
   }
 }
 
+// ---- 4.23 第 41–50 关：S5 精算段（容错收紧，顺序耦合） ----
+{
+  const s5 = LEVELS.filter((lv) => lv.id >= 41 && lv.id <= 50);
+  assert.equal(s5.length, 10, 'S5（41–50）应有 10 关');
+  let tight = 0;
+  for (const lv of s5) {
+    assert.equal(lv.stage, 5, `第 ${lv.id} 关应属于阶段 5`);
+    const slack = lv.limit - lv.par;
+    assert.ok(slack === 1 || slack === 2, `第 ${lv.id} 关容错应为 par+1 或 par+2，实际 ${slack}`);
+    if (slack === 1) tight++;
+    assert.equal(astarPar(lv), lv.par, `第 ${lv.id} 关 par 应为 ${lv.par}`);
+
+    const st0 = rParse(lv.rows);
+    const total = rCount(st0);
+    assert.ok(total >= 10 && total <= 12, `第 ${lv.id} 关方块数应在 10–12，实际 ${total}`);
+    const colors = new Set([...st0.c].filter((v) => v > 0));
+    assert.ok(colors.size >= 4 && colors.size <= 5, `第 ${lv.id} 关应为 4–5 色`);
+
+    let innerWalls = 0;
+    for (let r = 1; r < lv.rows.length - 1; r++) {
+      for (let c = 1; c < lv.rows[0].length - 1; c++) if (lv.rows[r][c] === '#') innerWalls++;
+    }
+    assert.ok(innerWalls >= 3 && innerWalls <= 5, `第 ${lv.id} 关内墙应为 3–5 格，实际 ${innerWalls}`);
+
+    // 首步：全部能在上限内通关；保持 par 的首步 2–8 个；至少一个错选被惩罚
+    const firsts = genA(st0);
+    const totals = firsts.map((m) => astarTotal(lv, m));
+    assert.ok(totals.every((t) => t !== Infinity && t <= lv.limit), `第 ${lv.id} 关存在超出上限的首步`);
+    const best = totals.filter((t) => t === lv.par).length;
+    assert.ok(best >= 2 && best <= 8, `第 ${lv.id} 关保持 par 的首步应 2–8 个，实际 ${best}`);
+    assert.ok(Math.max(...totals) > lv.par, `第 ${lv.id} 关至少应有一个首步被惩罚`);
+
+    // 墙承重
+    let noWalls = lv;
+    for (let r = 1; r < lv.rows.length - 1; r++) {
+      for (let c = 1; c < lv.rows[0].length - 1; c++) {
+        if (lv.rows[r][c] === '#') noWalls = emptyCell(noWalls, r, c);
+      }
+    }
+    assert.ok(astarPar(noWalls) < lv.par, `第 ${lv.id} 关拆掉整组墙后 par 必须下降`);
+
+    // 承重颜色
+    let drop2 = 0;
+    for (const v of colors) {
+      if (lv.goal === 'color' && v === lv.targetColor) continue;
+      const p = astarPar(removeColor(lv, String.fromCharCode(64 + v)));
+      assert.notEqual(p, lv.par, `第 ${lv.id} 关${['红', '蓝', '绿', '黄', '紫'][v - 1]}块必须承重`);
+      if (lv.par - p >= 2) drop2++;
+    }
+    if (lv.goal === 'clear') {
+      assert.ok(drop2 >= 2, `第 ${lv.id} 关至少两种颜色拿掉后 par 降 ≥2 步，实际 ${drop2}`);
+    }
+  }
+  assert.ok(tight >= 2, `S5 中至少 2 关应为 par+1（其余 par+2），实际 ${tight}`);
+}
+
 // ---- 5. 关卡参数：par 必须等于最优解，且 par < 上限 ----
 // 1–8 关用 src BFS 精确穷举；9 关起块数变多，改用已校准的 A*（路径仍在下面的
 // 单关断言里用 src/game.js 逐步回放，保证"设计时能过 = 游戏里能过"）。
@@ -2123,5 +2179,6 @@ console.log(
     `第 21–25 关所有首步都在上限内可通关，最优首步分别为 3/3/5/4/2 个，每种非目标色整色拿掉后 par 都变，拆整组墙后 par 分别降为 4/4/4/4/3；` +
     `第 26–30 关所有首步都在上限内可通关，最优首步分别为 4/3/4/5/5 个，每种非目标色整色拿掉后 par 都变，拆整组墙后 par 分别降为 4/4/4/5/4；` +
     `第 31–40 关所有首步都在上限内可通关，最优首步分别为 5/6/7/5/5/6/8/8/6/5 个；第 31–37 关与第 39、40 关每种颜色整色拿掉后 par 都变，第 38 关每种非目标色整色拿掉后 par 都变；拆整组墙后 par 分别降为 6/7/6/9/7/6/7/4/8/7；` +
+    `第 41–50 关（S5）全部在 par+1/+2 上限内可通关，par 分别为 9/9/8/7/9/9/10/9/10/10，最优首步 8/6/4/7/8/8/5/4/7/5 个；仅第 43、48 关为 par+1，其余为 par+2；拆整组墙后 par 分别降为 7/8/4/3/8/7/9/4/9/8；` +
     `与 research 引擎对拍 ${compared} 个状态一致。`,
 );
