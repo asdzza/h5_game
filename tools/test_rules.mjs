@@ -1743,6 +1743,311 @@ const solveLevel = (lv) => (lv.id <= 8 ? solve(lv) : astarPar(lv));
   }
 }
 
+// ---- 4.22 第 31–40 关：S4 耦合段（清场为主，顺序决定落点） ----
+{
+  const cases = [
+    {
+      id: 31,
+      blocks: { 1: 2, 2: 2, 3: 2, 4: 4 },
+      walls: ['2,2', '2,3', '3,2'],
+      par: 7,
+      limit: 9,
+      firsts: 18,
+      optimal: 5,
+      worst: 9,
+      openPops: 6,
+      loads: { A: 5, B: 4, C: 6, D: 5 },
+      noWallsPar: 6,
+      path: [
+        [2, 4, 'R'],
+        [1, 4, 'D'],
+        [1, 3, 'R'],
+        [1, 5, 'D'],
+        [3, 3, 'D'],
+        [4, 2, 'R'],
+        [5, 1, 'R'],
+      ],
+    },
+    {
+      id: 32,
+      blocks: { 1: 2, 2: 2, 3: 4, 4: 4 },
+      walls: ['2,2', '2,3', '4,3', '4,4'],
+      par: 8,
+      limit: 10,
+      firsts: 13,
+      optimal: 6,
+      worst: 10,
+      openPops: 6,
+      loads: { A: 7, B: 5, C: 6, D: 6 },
+      noWallsPar: 7,
+      path: [
+        [3, 1, 'R'],
+        [2, 5, 'D'],
+        [1, 5, 'D'],
+        [1, 2, 'R'],
+        [1, 4, 'D'],
+        [5, 2, 'U'],
+        [3, 2, 'R'],
+        [5, 1, 'R'],
+      ],
+    },
+    {
+      id: 33,
+      blocks: { 1: 4, 2: 2, 3: 2, 4: 2 },
+      walls: ['2,2', '3,2', '4,2', '4,3'],
+      par: 7,
+      limit: 9,
+      firsts: 18,
+      optimal: 7,
+      worst: 9,
+      openPops: 6,
+      loads: { A: 4, B: 4, C: 6, D: 6 },
+      noWallsPar: 6,
+      path: [
+        [1, 3, 'R'],
+        [1, 2, 'R'],
+        [1, 4, 'D'],
+        [1, 1, 'R'],
+        [2, 1, 'D'],
+        [3, 3, 'R'],
+        [4, 5, 'D'],
+      ],
+    },
+    {
+      id: 34,
+      blocks: { 1: 2, 2: 2, 3: 2, 4: 2, 5: 2 },
+      walls: ['1,4', '2,2', '5,5'],
+      par: 10,
+      limit: 12,
+      firsts: 20,
+      optimal: 5,
+      worst: 12,
+      openPops: 2,
+      loads: { A: 8, B: 7, C: 9, D: 8, E: 9 },
+      noWallsPar: 9,
+      path: [
+        [4, 4, 'R'],
+        [2, 3, 'D'],
+        [1, 3, 'D'],
+        [3, 1, 'R'],
+        [4, 1, 'R'],
+        [1, 1, 'R'],
+        [1, 3, 'D'],
+        [5, 2, 'U'],
+        [3, 2, 'R'],
+        [1, 5, 'D'],
+      ],
+    },
+    {
+      id: 35,
+      blocks: { 1: 2, 2: 2, 3: 2, 4: 4 },
+      walls: ['2,2', '3,2', '4,2', '4,3'],
+      par: 8,
+      limit: 10,
+      firsts: 15,
+      optimal: 5,
+      worst: 10,
+      openPops: 6,
+      loads: { A: 6, B: 5, C: 7, D: 6 },
+      noWallsPar: 7,
+      path: [
+        [1, 4, 'D'],
+        [3, 5, 'D'],
+        [4, 4, 'U'],
+        [5, 1, 'R'],
+        [5, 4, 'U'],
+        [1, 1, 'R'],
+        [2, 4, 'R'],
+        [1, 5, 'D'],
+      ],
+    },
+    {
+      id: 36,
+      blocks: { 1: 2, 2: 2, 3: 2, 4: 4 },
+      walls: ['2,2', '2,4', '4,4'],
+      par: 7,
+      limit: 9,
+      firsts: 15,
+      optimal: 6,
+      worst: 9,
+      openPops: 4,
+      loads: { A: 6, B: 6, C: 5, D: 3 },
+      noWallsPar: 6,
+      path: [
+        [3, 5, 'D'],
+        [2, 5, 'D'],
+        [1, 4, 'L'],
+        [1, 3, 'D'],
+        [1, 2, 'R'],
+        [2, 1, 'D'],
+        [5, 1, 'R'],
+      ],
+    },
+    {
+      id: 37,
+      blocks: { 1: 2, 2: 2, 3: 2, 4: 2, 5: 4 },
+      walls: ['2,2', '2,3', '4,3', '4,4'],
+      par: 8,
+      limit: 10,
+      firsts: 20,
+      optimal: 8,
+      worst: 10,
+      openPops: 8,
+      loads: { A: 7, B: 7, C: 6, D: 7, E: 5 },
+      noWallsPar: 7,
+      path: [
+        [1, 4, 'R'],
+        [5, 1, 'R'],
+        [2, 4, 'D'],
+        [3, 2, 'R'],
+        [3, 5, 'L'],
+        [2, 1, 'D'],
+        [2, 5, 'D'],
+        [3, 2, 'D'],
+      ],
+    },
+    {
+      id: 38,
+      goal: 'color',
+      target: 1,
+      blocks: { 1: 6, 2: 2, 3: 2, 4: 2 },
+      walls: ['3,2', '3,4', '5,2'],
+      par: 7,
+      limit: 9,
+      firsts: 20,
+      optimal: 8,
+      worst: 9,
+      openPops: 6,
+      loads: { B: 6, C: 5, D: 5 },
+      noWallsPar: 4,
+      path: [
+        [1, 1, 'D'],
+        [1, 2, 'R'],
+        [4, 3, 'U'],
+        [4, 5, 'L'],
+        [5, 4, 'U'],
+        [4, 4, 'R'],
+        [3, 5, 'D'],
+      ],
+    },
+    {
+      id: 39,
+      blocks: { 1: 2, 2: 2, 3: 2, 4: 2, 5: 4 },
+      walls: ['2,2', '3,2', '3,4', '4,4'],
+      par: 9,
+      limit: 11,
+      firsts: 17,
+      optimal: 6,
+      worst: 11,
+      openPops: 8,
+      loads: { A: 6, B: 7, C: 8, D: 8, E: 5 },
+      noWallsPar: 8,
+      path: [
+        [4, 2, 'D'],
+        [3, 3, 'D'],
+        [2, 3, 'D'],
+        [4, 3, 'L'],
+        [1, 3, 'D'],
+        [4, 1, 'D'],
+        [2, 1, 'D'],
+        [5, 1, 'R'],
+        [2, 5, 'D'],
+      ],
+    },
+    {
+      id: 40,
+      blocks: { 1: 2, 2: 2, 3: 2, 4: 2, 5: 4 },
+      walls: ['2,2', '3,2', '3,4', '4,4'],
+      par: 9,
+      limit: 11,
+      firsts: 19,
+      optimal: 5,
+      worst: 11,
+      openPops: 6,
+      loads: { A: 8, B: 6, C: 8, D: 7, E: 8 },
+      noWallsPar: 7,
+      path: [
+        [1, 3, 'R'],
+        [1, 2, 'R'],
+        [5, 2, 'R'],
+        [3, 3, 'D'],
+        [4, 3, 'L'],
+        [2, 3, 'D'],
+        [2, 5, 'D'],
+        [3, 1, 'D'],
+        [5, 4, 'R'],
+      ],
+    },
+  ];
+
+  for (const cs of cases) {
+    const lv = LEVELS.find((l) => l.id === cs.id);
+    const st = parse(lv.rows);
+    assert.equal(lv.id, cs.id);
+    assert.equal(lv.goal, cs.goal || 'clear', `第 ${cs.id} 关目标类型不对`);
+    if ((cs.goal || 'clear') === 'color') {
+      assert.equal(lv.targetColor, cs.target, `第 ${cs.id} 关目标色不对`);
+    }
+    assert.equal(countBlocks(st), Object.values(cs.blocks).reduce((a, b) => a + b, 0));
+
+    const counts = {};
+    for (const v of st.c) if (v > 0) counts[v] = (counts[v] || 0) + 1;
+    assert.deepEqual(counts, cs.blocks, `第 ${cs.id} 关颜色配比不对`);
+
+    const walls = [];
+    for (let r = 1; r <= 5; r++)
+      for (let c = 1; c <= 5; c++) if (at(st, r, c) === -1) walls.push(`${r},${c}`);
+    assert.deepEqual(walls, cs.walls, `第 ${cs.id} 关内墙位置不对`);
+
+    assert.equal(astarPar(lv), cs.par);
+    assert.equal(lv.par, cs.par);
+    assert.equal(lv.limit, cs.limit);
+
+    const firsts = legalMoves(st);
+    assert.equal(firsts.length, cs.firsts, `第 ${cs.id} 关合法首步数不对`);
+    assert.equal(firsts.filter((m) => m.res === 'pop').length, cs.openPops, `第 ${cs.id} 关开局现成对数不对`);
+    const totals = firsts.map((m) => ({ m, total: astarTotal(lv, m) }));
+    for (const x of totals) {
+      assert.ok(
+        Number.isFinite(x.total) && x.total <= lv.limit,
+        `第 ${cs.id} 关首步 ${x.m.r},${x.m.c}${x.m.d} 之后仍应能在 ${lv.limit} 步内通关`,
+      );
+    }
+    assert.equal(totals.filter((x) => x.total === cs.par).length, cs.optimal, `第 ${cs.id} 关最优首步数不对`);
+    assert.equal(Math.max(...totals.map((x) => x.total)), cs.worst, `第 ${cs.id} 关最差首步应为 ${cs.worst}`);
+
+    // 逐步回放：src/game.js 与 research A* 的解法一致
+    let cur = st;
+    for (const [r, c, d] of cs.path) {
+      const m = moveFrom(cur, r, c, d);
+      assert.ok(m, `第 ${cs.id} 关路径 ${r},${c}${d} 应为合法走法`);
+      cur = applyMove(cur, m);
+    }
+    assert.equal(isGoal(cur, lv), true, `第 ${cs.id} 关按路径应通关`);
+
+    // 清场关：每种颜色整色拿掉后 par 都必须变化，且至少两种降 ≥2 步；
+    // 清色关：每种非目标色整色拿掉后 par 都必须变化。
+    let drop2 = 0;
+    for (const [ch, expected] of Object.entries(cs.loads)) {
+      assert.equal(astarPar(removeColor(lv, ch)), expected, `第 ${cs.id} 关拿掉整色 ${ch} 后 par 应变为 ${expected}`);
+      assert.ok(expected < cs.par, `第 ${cs.id} 关颜色 ${ch} 必须承重`);
+      if (cs.par - expected >= 2) drop2++;
+    }
+    if ((cs.goal || 'clear') === 'clear') {
+      assert.ok(drop2 >= 2, `第 ${cs.id} 关至少两种颜色拿掉后 par 降 ≥2 步，实际 ${drop2}`);
+    }
+
+    // 拆掉整组内墙后 par 必须下降
+    let noWalls = lv;
+    for (const w of cs.walls) {
+      const [r, c] = w.split(',').map(Number);
+      noWalls = emptyCell(noWalls, r, c);
+    }
+    assert.equal(astarPar(noWalls), cs.noWallsPar, `第 ${cs.id} 关拆掉整组墙后 par 应变为 ${cs.noWallsPar}`);
+    assert.ok(cs.noWallsPar < cs.par, `第 ${cs.id} 关墙必须承重`);
+  }
+}
+
 // ---- 5. 关卡参数：par 必须等于最优解，且 par < 上限 ----
 // 1–8 关用 src BFS 精确穷举；9 关起块数变多，改用已校准的 A*（路径仍在下面的
 // 单关断言里用 src/game.js 逐步回放，保证"设计时能过 = 游戏里能过"）。
@@ -1817,5 +2122,6 @@ console.log(
     `第 19–20 关所有首步都在上限内可通关；第 19 关 5 个最优首步、拆墙后 par 不变；第 20 关 3 个最优首步、拆整组墙后 par 降为 3；两关的非目标块拿掉后 par 都会变；` +
     `第 21–25 关所有首步都在上限内可通关，最优首步分别为 3/3/5/4/2 个，每种非目标色整色拿掉后 par 都变，拆整组墙后 par 分别降为 4/4/4/4/3；` +
     `第 26–30 关所有首步都在上限内可通关，最优首步分别为 4/3/4/5/5 个，每种非目标色整色拿掉后 par 都变，拆整组墙后 par 分别降为 4/4/4/5/4；` +
+    `第 31–40 关所有首步都在上限内可通关，最优首步分别为 5/6/7/5/5/6/8/8/6/5 个；第 31–37 关与第 39、40 关每种颜色整色拿掉后 par 都变，第 38 关每种非目标色整色拿掉后 par 都变；拆整组墙后 par 分别降为 6/7/6/9/7/6/7/4/8/7；` +
     `与 research 引擎对拍 ${compared} 个状态一致。`,
 );
