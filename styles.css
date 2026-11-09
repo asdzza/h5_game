@@ -254,6 +254,17 @@ body {
   cursor: default;
 }
 
+.solution-btn {
+  color: #fde68a;
+  background: rgba(251, 191, 36, 0.09);
+  border-color: rgba(251, 191, 36, 0.32);
+}
+
+.solution-btn:hover:not(:disabled) {
+  background: rgba(251, 191, 36, 0.15);
+  border-color: rgba(251, 191, 36, 0.5);
+}
+
 .overlay {
   position: fixed;
   inset: 0;
@@ -305,7 +316,8 @@ body {
 #again,
 #intro-ok,
 #next,
-#fail-undo {
+#fail-undo,
+#solution-close {
   font: inherit;
   font-size: 15px;
   font-weight: 600;
@@ -321,7 +333,8 @@ body {
 #again:active,
 #intro-ok:active,
 #next:active,
-#fail-undo:active {
+#fail-undo:active,
+#solution-close:active {
   transform: translateY(1px);
 }
 
@@ -355,6 +368,56 @@ body {
   max-height: calc(100dvh - 48px);
   display: flex;
   flex-direction: column;
+}
+
+/* 完整解法：大一号、可滚动，按顺序阅读 */
+.solution-card {
+  width: min(560px, 100%);
+  max-height: min(82dvh, 760px);
+  padding: 24px 26px 20px;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+.solution-card h2 {
+  margin-bottom: 8px;
+  font-size: 21px;
+  text-align: left;
+}
+
+.solution-note {
+  margin: 0 0 12px !important;
+  font-size: 12.5px !important;
+  line-height: 1.6;
+  text-align: left;
+}
+
+.solution-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0 0 16px;
+  padding-left: 24px;
+  overflow-y: auto;
+  font-size: 15.5px;
+  line-height: 1.85;
+  color: var(--text);
+  scrollbar-width: thin;
+  overscroll-behavior: contain;
+}
+
+.solution-list li {
+  margin-bottom: 8px;
+  padding-left: 2px;
+}
+
+.solution-list li::marker {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+#solution-close {
+  flex: 0 0 auto;
 }
 
 .level-summary {
@@ -524,11 +587,28 @@ body {
     height: 42px;
     font-size: 14px;
   }
+  .solution-card {
+    padding: 18px 18px 14px;
+    max-height: calc(100dvh - 28px);
+  }
+  .solution-card h2 {
+    font-size: 18px;
+  }
+  .solution-list {
+    font-size: 14px;
+    line-height: 1.7;
+  }
   #bottom {
     gap: 8px;
     padding-bottom: 8px;
   }
   #hud {
     padding-top: 8px;
+  }
+}
+
+@media (max-width: 380px) {
+  .action-btn {
+    font-size: 13.5px;
   }
 }

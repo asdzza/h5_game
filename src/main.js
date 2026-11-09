@@ -4,6 +4,7 @@ import {
   applyMove,
   isGoal,
   moveDistance,
+  legalMoves,
   at,
   DIRS,
 } from './game.js';
@@ -31,6 +32,10 @@ const elIntro = document.getElementById('intro');
 const elLevels = document.getElementById('levels');
 const elLevelGrid = document.getElementById('level-grid');
 const elLevelSummary = document.getElementById('level-summary');
+const elSolution = document.getElementById('solution');
+const elSolutionTitle = document.getElementById('solution-title');
+const elSolutionNote = document.getElementById('solution-note');
+const elSolutionList = document.getElementById('solution-list');
 const btnIntroOk = document.getElementById('intro-ok');
 const btnHelp = document.getElementById('help');
 const btnSound = document.getElementById('sound');
@@ -38,6 +43,8 @@ const btnLevels = document.getElementById('levels-btn');
 const btnLevelsClose = document.getElementById('levels-close');
 const btnUndo = document.getElementById('undo');
 const btnHint = document.getElementById('hint-btn');
+const btnSolution = document.getElementById('solution-btn');
+const btnSolutionClose = document.getElementById('solution-close');
 const btnRestart = document.getElementById('restart');
 const btnNext = document.getElementById('next');
 const btnAgain = document.getElementById('again');
@@ -77,10 +84,7 @@ let won = false;
 let failed = false;
 let layout = computeLayout(320, 320, state.w, state.h);
 let hintTimer = 0;
-let idleTimer = 0;
 let pops = 0;
-let dry = 0;
-let nudged = false;
 
 function persist() {
   save.level = level.id;
@@ -128,23 +132,52 @@ function updateUndo() {
   btnUndo.disabled = history.length === 0;
 }
 
-function showNudge() {
-  if (nudged || won || failed || !level.nudge) return;
-  nudged = true;
-  setHint(level.nudge);
-  updateHintButton();
+function showHint() {
+  if (won || failed) return;
+  audio.play('ui');
+  const name = COLOR_NAMES[level.targetColor - 1] || '目标';
+  const popsNow = legalMoves(state).filter((m) => m.res === 'pop').length;
+  const goalLine =
+    level.goal === 'color'
+      ? `本关只清${name}块；其他颜色即使能消，也先想一想是不是还要留着当刹车。`
+      : '本关要清空全场，先想清楚哪一对该留到后面。';
+  let tip;
+  if (popsNow >= 2) {
+    tip = `现在有 ${popsNow} 对能直接消，先比较消掉哪一对会拆掉后面的停车位。`;
+  } else if (popsNow === 1) {
+    tip = '现在只有一对能直接消；先看它消掉后，剩下的同色块还能不能停到墙边或异色块旁边。';
+  } else {
+    tip = '现在没有现成的同色对；先借墙或异色块，把一个方块停到同伴旁边。';
+  }
+  setHint(`${goalLine} ${tip}`, 9000);
 }
 
-function updateHintButton() {
-  btnHint.disabled = nudged || !level.nudge;
+function solutionSteps() {
+  return (level.nudge || '')
+    .split('；')
+    .map((s) => s.trim().replace(/。$/, ''))
+    .filter(Boolean);
 }
 
-// 卡住时给一句更具体的提示：10 秒无操作，或连续 3 步都没消掉任何东西。
-function scheduleNudge() {
-  clearTimeout(idleTimer);
-  idleTimer = 0;
-  if (!level.nudge || nudged) return;
-  idleTimer = setTimeout(showNudge, 10000);
+function openSolution() {
+  if (!level.nudge) return;
+  elSolutionTitle.textContent = `第 ${level.id} 关 · ${level.name}`;
+  elSolutionNote.textContent = moves
+    ? '这份走法从开局起算；你已经走过步，建议先点「重开」再照着走。'
+    : '这份走法从开局起算，按顺序拖动即可。';
+  elSolutionList.replaceChildren(
+    ...solutionSteps().map((text) => {
+      const li = document.createElement('li');
+      li.textContent = text;
+      return li;
+    }),
+  );
+  elSolution.classList.remove('hidden');
+  audio.play('ui');
+}
+
+function closeSolution() {
+  elSolution.classList.add('hidden');
 }
 
 function renderStars(n) {
@@ -162,8 +195,6 @@ function starsFor(lv, n) {
 function showWin() {
   won = true;
   drag = null;
-  clearTimeout(idleTimer);
-  idleTimer = 0;
   const stars = starsFor(level, moves);
   renderStars(stars);
   const goalWord =
@@ -194,8 +225,6 @@ function showWin() {
 function showFail() {
   failed = true;
   drag = null;
-  clearTimeout(idleTimer);
-  idleTimer = 0;
   elFail.classList.remove('hidden');
   setHint('步数用完了。撤销一步可以接着走，步数会退回来。');
   audio.play('fail');
@@ -347,17 +376,14 @@ function loadLevel(index) {
   moves = 0;
   history = [];
   pops = 0;
-  dry = 0;
-  nudged = false;
   cancelAnim();
-  clearTimeout(idleTimer);
-  idleTimer = 0;
   drag = null;
   won = false;
   failed = false;
   elWin.classList.add('hidden');
   elFail.classList.add('hidden');
   elLevels.classList.add('hidden');
+  closeSolution();
   elLevel.textContent = `第 ${level.id} 关`;
   elName.textContent = level.name;
   updateGoal();
@@ -365,10 +391,9 @@ function loadLevel(index) {
   setHint(level.teach);
   updateHud();
   updateUndo();
-  updateHintButton();
+  btnSolution.disabled = !level.nudge;
   resize();
   persist();
-  scheduleNudge();
 }
 
 function invalidHint(r, c, dir) {
@@ -389,11 +414,10 @@ function commit({ r, c, dir }) {
     setHint(invalidHint(r, c, dir), 2200);
     audio.play('bounce');
     playAnim({ kind: 'bounce', r, c, dir, t0: performance.now(), dur: 220 });
-    scheduleNudge();
     return;
   }
 
-  history.push({ state, moves, pops, dry });
+  history.push({ state, moves, pops });
   if (history.length > 300) history.shift();
 
   const before = state;
@@ -401,13 +425,10 @@ function commit({ r, c, dir }) {
   state = applyMove(state, m);
   moves++;
   if (m.res === 'pop') pops++;
-  dry = m.res === 'pop' ? 0 : dry + 1;
   updateHud();
   updateUndo();
   setHint(level.teach);
   audio.play(m.res === 'pop' ? 'pop' : 'slide');
-  if (dry >= 3) showNudge();
-  else scheduleNudge();
 
   const dist = moveDistance(m);
   if (m.res === 'pop') {
@@ -455,7 +476,6 @@ function undo() {
   state = prev.state;
   moves = prev.moves;
   pops = prev.pops;
-  dry = prev.dry ?? 0;
   if (failed) {
     failed = false;
     elFail.classList.add('hidden');
@@ -464,7 +484,6 @@ function undo() {
   updateHud();
   updateUndo();
   audio.play('ui');
-  scheduleNudge();
 }
 
 function tick(now) {
@@ -489,9 +508,11 @@ attachInput(canvas, {
 });
 
 btnUndo.addEventListener('click', undo);
-btnHint.addEventListener('click', () => {
-  audio.play('ui');
-  showNudge();
+btnHint.addEventListener('click', showHint);
+btnSolution.addEventListener('click', openSolution);
+btnSolutionClose.addEventListener('click', closeSolution);
+elSolution.addEventListener('click', (e) => {
+  if (e.target === elSolution) closeSolution();
 });
 btnRestart.addEventListener('click', () => loadLevel(levelIndex));
 btnNext.addEventListener('click', () => {
@@ -525,6 +546,10 @@ btnSound.addEventListener('click', () => {
 });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
+  if (!elSolution.classList.contains('hidden')) {
+    closeSolution();
+    return;
+  }
   if (!elLevels.classList.contains('hidden')) {
     closeLevels();
     return;

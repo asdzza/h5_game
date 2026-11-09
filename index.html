@@ -33,7 +33,8 @@
       <footer id="bottom">
         <p id="hint">按住方块拖动，它会一直滑到撞上东西为止。</p>
         <div id="actions">
-          <button id="hint-btn" class="action-btn" type="button" disabled>提示</button>
+          <button id="hint-btn" class="action-btn" type="button">提示</button>
+          <button id="solution-btn" class="action-btn solution-btn" type="button">看解法</button>
           <button id="undo" class="action-btn" type="button" disabled>撤销</button>
           <button id="restart" class="action-btn" type="button">重开</button>
         </div>
@@ -85,6 +86,16 @@
         <p id="level-summary" class="level-summary"></p>
         <div id="level-grid" class="level-grid"></div>
         <button id="levels-close" class="ghost" type="button">继续当前关</button>
+      </div>
+    </div>
+
+    <div id="solution" class="overlay hidden">
+      <div class="card solution-card">
+        <p class="card-kicker">完整解法</p>
+        <h2 id="solution-title">按顺序走</h2>
+        <p id="solution-note" class="solution-note"></p>
+        <ol id="solution-list" class="solution-list"></ol>
+        <button id="solution-close" type="button">知道了</button>
       </div>
     </div>
 
