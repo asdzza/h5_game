@@ -110,6 +110,13 @@ npm run gen -- --template mid-pair --blocks A2B2C2 --goal clear --par 5 --limit 
 # 加 --no-open-pop 去掉"开局就有现成一对"的盘面，--all-recoverable 只留
 # "走错任何一步都还能在上限内通关"的盘面，--dead 扫死局（较慢）
 
+# S3 清色关：按「目标色 + par + 块数」搜候选（非目标色整色拿掉后 par 必变）
+node research/s3_search.mjs twin-diag 4 A4B1C1 6000
+# 单盘面终检：par / 首步表 / 逐块拿掉 / 逐格墙拿掉 / 拆整组墙
+node research/s3_check.mjs 1 "#..#A.#" "#.C.B.#" "#....A#" "#.....#" "#.A#A.#"
+# 固定方块布局枚举两格墙位
+node research/s3_wallscan.mjs 1 4 "...A." ".C.B." "....A" "....." ".A.A."
+
 # 全量校验 13 个研究用关卡（会重写 levels_report.json）
 node research/verify.mjs
 # 期望最后一行：levels=13 failed=0
