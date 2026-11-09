@@ -16,6 +16,7 @@
         <div class="hud-left">
           <span id="level-label">第 1 关</span>
           <strong id="level-name">碰一下</strong>
+          <span id="goal" class="goal"><span id="goal-dot" class="goal-dot" aria-hidden="true"></span><span id="goal-text">目标：清空全场</span></span>
         </div>
         <div class="hud-right">
           <span id="moves">0 / 6</span>
@@ -56,7 +57,7 @@
 
     <div id="win" class="overlay hidden">
       <div class="card">
-        <p class="card-kicker">清空</p>
+        <p class="card-kicker" id="win-kicker">清空</p>
         <div id="stars" class="stars" aria-hidden="true">
           <span>★</span><span>★</span><span>★</span>
         </div>

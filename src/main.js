@@ -8,7 +8,7 @@ import {
   DIRS,
 } from './game.js';
 import { LEVELS, TOTAL_LEVELS } from './levels.js';
-import { computeLayout, draw } from './render.js';
+import { computeLayout, draw, PALETTE } from './render.js';
 import { attachInput } from './input.js';
 import { createAudio } from './audio.js';
 
@@ -17,9 +17,12 @@ const ctx = canvas.getContext('2d');
 const stage = document.getElementById('stage');
 const elLevel = document.getElementById('level-label');
 const elName = document.getElementById('level-name');
+const elGoal = document.getElementById('goal');
+const elGoalText = document.getElementById('goal-text');
 const elMoves = document.getElementById('moves');
 const elHint = document.getElementById('hint');
 const elWin = document.getElementById('win');
+const elWinKicker = document.getElementById('win-kicker');
 const elWinText = document.getElementById('win-text');
 const elWinSub = document.getElementById('win-sub');
 const elStars = document.getElementById('stars');
@@ -45,6 +48,7 @@ const audio = createAudio();
 const INTRO_KEY = 'zgz.seenIntro.v2';
 const SAVE_KEY = 'zgz.save.v2';
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
+const COLOR_NAMES = ['红', '蓝', '绿', '黄', '紫'];
 
 function readSave() {
   try {
@@ -104,6 +108,22 @@ function updateHud() {
   elMoves.classList.toggle('warn', moves >= level.limit - 1);
 }
 
+function updateGoal() {
+  if (level.goal === 'color') {
+    const name = COLOR_NAMES[level.targetColor - 1] || '目标';
+    const color = PALETTE[level.targetColor - 1]?.base || '#ef4444';
+    elGoal.classList.add('is-color');
+    elGoal.style.setProperty('--goal-color', color);
+    elGoalText.textContent = `目标：只清${name}块`;
+    elGoal.setAttribute('aria-label', `本关目标：只消除${name}色方块`);
+  } else {
+    elGoal.classList.remove('is-color');
+    elGoal.style.removeProperty('--goal-color');
+    elGoalText.textContent = '目标：清空全场';
+    elGoal.setAttribute('aria-label', '本关目标：清空全场');
+  }
+}
+
 function updateUndo() {
   btnUndo.disabled = history.length === 0;
 }
@@ -146,7 +166,12 @@ function showWin() {
   idleTimer = 0;
   const stars = starsFor(level, moves);
   renderStars(stars);
-  elWinText.textContent = `用 ${moves} 步${level.goal === 'color' ? '清掉红色' : '清空'}`;
+  const goalWord =
+    level.goal === 'color'
+      ? `清掉${COLOR_NAMES[level.targetColor - 1] || '目标'}块`
+      : '清空';
+  elWinKicker.textContent = goalWord;
+  elWinText.textContent = `用 ${moves} 步${goalWord}`;
 
   const best = save.best[level.id];
   if (best == null || moves < best) save.best[level.id] = moves;
@@ -335,6 +360,7 @@ function loadLevel(index) {
   elLevels.classList.add('hidden');
   elLevel.textContent = `第 ${level.id} 关`;
   elName.textContent = level.name;
+  updateGoal();
   document.title = `${level.name} · 撞个正着`;
   setHint(level.teach);
   updateHud();
