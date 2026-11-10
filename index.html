@@ -45,7 +45,19 @@
       </header>
 
       <main id="stage">
-        <canvas id="board" aria-label="游戏棋盘"></canvas>
+        <canvas
+          id="board"
+          role="application"
+          tabindex="0"
+          aria-roledescription="滑动解谜棋盘"
+          aria-label="游戏棋盘"
+          aria-describedby="board-help"
+        ></canvas>
+        <p id="board-help" class="sr-only">
+          键盘操作：方向键在方块之间移动选择，空格或回车拿起方块，拿起后按方向键把方块滑出去，Esc
+          放下。也可以用鼠标或手指直接拖动方块。
+        </p>
+        <div id="sr-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
       </main>
 
       <footer id="bottom">
@@ -84,6 +96,7 @@
           <li>松手后它会一直滑，直到撞上墙、边界或别的方块。</li>
           <li>撞上<b>同色</b>方块，两块一起消失。</li>
           <li>步数有限，用完还没清空就失败；点「撤销」会把步数退回来。</li>
+          <li>键盘也能玩：Tab 把焦点移到棋盘，方向键选块，空格拿起，再按方向键滑出去，Esc 放下。</li>
         </ul>
         <p class="card-note">异色方块不会被推动，它们既是路障，也是下一对。</p>
         <button id="intro-ok" type="button">我明白了！</button>

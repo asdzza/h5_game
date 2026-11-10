@@ -11,11 +11,12 @@ import {
 } from './game.js';
 import { LEVELS, TOTAL_LEVELS } from './levels.js';
 import { computeLayout, draw, PALETTE } from './render.js';
-import { attachInput } from './input.js';
+import { attachInput, attachKeyboard } from './input.js';
 import { createAudio } from './audio.js';
 
 const canvas = document.getElementById('board');
 const ctx = canvas.getContext('2d');
+const elSrStatus = document.getElementById('sr-status');
 const stage = document.getElementById('stage');
 const elLevel = document.getElementById('level-label');
 const elName = document.getElementById('level-name');
@@ -123,6 +124,9 @@ let hintStep = 0;
 let hintUsed = 0;
 let rafId = 0;
 let currentCell = null;
+// 键盘选中框：{ r, c, picked }，只在键盘操作时存在
+let kbd = null;
+let srFlip = false;
 
 function persist() {
   save.level = level.id;
@@ -154,6 +158,13 @@ function baseHint() {
   return `${level.teach}（${level.par} 步内 3★）${pen ? ` ${pen}` : ''}`;
 }
 
+// 读屏播报：live region 只在文本变化时发声，所以用零宽字符交替强制刷新
+function announce(text) {
+  if (!elSrStatus || !text) return;
+  srFlip = !srFlip;
+  elSrStatus.textContent = (srFlip ? '\u200b' : '') + text;
+}
+
 function updateHud() {
   elMoves.textContent = `${moves} / ${level.limit}`;
   elMoves.classList.toggle('warn', moves >= level.limit - 1);
@@ -167,6 +178,27 @@ function updateHud() {
   elMoves.setAttribute(
     'aria-label',
     `已用 ${moves} 步，上限 ${level.limit} 步，${level.par} 步内可得三星`,
+  );
+  updateBoardA11y();
+}
+
+// canvas 没法被读屏直接读，所以把「目标 + 场上各色数量 + 步数」写进 aria-label
+function updateBoardA11y() {
+  const counts = [0, 0, 0, 0, 0];
+  for (let i = 0; i < state.c.length; i++) {
+    const v = state.c[i];
+    if (v > 0) counts[v - 1]++;
+  }
+  const parts = [];
+  counts.forEach((n, i) => {
+    if (n) parts.push(`${COLOR_NAMES[i]}块 ${n} 个`);
+  });
+  const goal =
+    level.goal === 'color' ? `只清${COLOR_NAMES[level.targetColor - 1]}块` : '清空全场';
+  const countsText = parts.length ? parts.join('，') : '场上没有方块';
+  canvas.setAttribute(
+    'aria-label',
+    `第 ${level.id} 关 ${level.name}。目标${goal}。场上${countsText}。已用 ${moves} 步，上限 ${level.limit} 步，${level.par} 步内三星。方向键选块，空格拿起。`,
   );
 }
 
@@ -484,6 +516,7 @@ function onDeadReply(ev) {
   if (deadNow || won || failed) return;
   deadNow = true;
   setHint(baseHint(), 0, 'warn');
+  announce('这个局面可能已经清不完了，撤销一步或重开还有救。');
 }
 
 function ensureDeadWorker() {
@@ -711,6 +744,7 @@ function closeTitle({ showIntro = false } = {}) {
   }
   audio.play('ui');
   if (showIntro) openIntro();
+  else canvas.focus({ preventScroll: true });
 }
 
 function introSeen() {
@@ -734,6 +768,7 @@ function closeIntro() {
     /* ignore */
   }
   audio.play('ui');
+  canvas.focus({ preventScroll: true });
 }
 
 function isLevelUnlocked(index) {
@@ -870,6 +905,7 @@ function selectLevel(index) {
   loadLevel(index);
   elLevels.classList.add('hidden');
   audio.play('ui');
+  canvas.focus({ preventScroll: true });
 }
 
 function syncSound() {
@@ -936,6 +972,7 @@ function loadLevel(index) {
   resetDeadCheck();
   cancelAnim();
   drag = null;
+  kbd = null;
   won = false;
   failed = false;
   elWin.classList.add('hidden');
@@ -987,6 +1024,21 @@ function commit({ r, c, dir }) {
   updateHud();
   updateUndo();
   setHint(baseHint());
+
+  // 读屏播报这一步的结果（鼠标 / 键盘都走这里）
+  if (m.res === 'pop') {
+    const pairsLeft =
+      level.goal === 'color'
+        ? Math.ceil(countColor(state, level.targetColor) / 2)
+        : Math.ceil(countBlocks(state) / 2);
+    announce(
+      `两块${COLOR_NAMES[color - 1]}块撞在一起消失了${pairsLeft ? `，还剩 ${pairsLeft} 对` : ''}。`,
+    );
+  } else {
+    announce(
+      `${COLOR_NAMES[color - 1]}块滑到第 ${m.tr + 1} 行第 ${m.tc + 1} 列，用了 ${moves} 步。`,
+    );
+  }
 
   const dist = moveDistance(m);
   if (m.res === 'pop') {
@@ -1064,10 +1116,12 @@ function undo() {
   state = prev.state;
   moves = prev.moves;
   pops = prev.pops;
+  kbd = null;
   resetDeadCheck();
   if (failed) {
     failed = false;
     elFail.classList.add('hidden');
+    canvas.focus({ preventScroll: true });
   }
   setHint(baseHint());
   updateHud();
@@ -1102,6 +1156,7 @@ function tick(now) {
     now,
     theme,
     reduceMotion: REDUCE_MOTION,
+    selected: kbd,
   });
   // 空闲时停止重绘：只有动画/拖拽期间才继续要下一帧
   if (anim || drag) requestDraw();
@@ -1126,24 +1181,62 @@ attachInput(canvas, {
   },
 });
 
+// 键盘操作：方向键选块、空格拿起、拿起后方向键直接走、Esc 放下
+attachKeyboard(canvas, {
+  getState: () => state,
+  isBlocked: () => !!anim || won || failed,
+  onSelect: (sel, picked, quiet) => {
+    kbd = sel ? { r: sel.r, c: sel.c, picked } : null;
+    requestDraw();
+    if (!sel || quiet) return;
+    const v = at(state, sel.r, sel.c);
+    const name = v > 0 ? COLOR_NAMES[v - 1] : '空';
+    if (picked) {
+      announce(
+        `拿起${name}块，第 ${sel.r + 1} 行第 ${sel.c + 1} 列。按方向键滑出去，Esc 放下。`,
+      );
+    } else {
+      announce(`选中${name}块，第 ${sel.r + 1} 行第 ${sel.c + 1} 列。空格拿起。`);
+    }
+  },
+  onCommit: (g) => {
+    commit(g);
+    requestDraw();
+  },
+  onInvalid: (g) => {
+    commit(g);
+    announce('这个方向走不动，换一个方向试试。');
+  },
+});
+
 btnUndo.addEventListener('click', undo);
 btnHint.addEventListener('click', requestHint);
 btnSolutionClose.addEventListener('click', closeSolution);
 elSolution.addEventListener('click', (e) => {
   if (e.target === elSolution) closeSolution();
 });
-btnRestart.addEventListener('click', () => loadLevel(levelIndex));
+btnRestart.addEventListener('click', () => {
+  loadLevel(levelIndex);
+  canvas.focus({ preventScroll: true });
+});
 btnNext.addEventListener('click', () => {
   if (levelIndex === LEVELS.length - 1) {
     audio.play('ui');
     openLevels();
   } else {
     loadLevel(levelIndex + 1);
+    canvas.focus({ preventScroll: true });
   }
 });
-btnAgain.addEventListener('click', () => loadLevel(levelIndex));
+btnAgain.addEventListener('click', () => {
+  loadLevel(levelIndex);
+  canvas.focus({ preventScroll: true });
+});
 btnFailUndo.addEventListener('click', undo);
-btnFailRestart.addEventListener('click', () => loadLevel(levelIndex));
+btnFailRestart.addEventListener('click', () => {
+  loadLevel(levelIndex);
+  canvas.focus({ preventScroll: true });
+});
 btnIntroOk.addEventListener('click', closeIntro);
 btnHelp.addEventListener('click', () => {
   audio.play('ui');
@@ -1252,6 +1345,9 @@ if (isLocalHost) {
     get deadNow() {
       return deadNow;
     },
+    get selection() {
+      return kbd;
+    },
     get theme() {
       return theme;
     },
@@ -1283,7 +1379,14 @@ if (isLocalHost) {
     save,
     // 手动渲染一帧：用于不可见窗口（rAF 被冻结）时截图/取色排查
     redraw(now = performance.now()) {
-      draw(ctx, layout, state, { drag, anim, now, theme, reduceMotion: REDUCE_MOTION });
+      draw(ctx, layout, state, {
+        drag,
+        anim,
+        now,
+        theme,
+        reduceMotion: REDUCE_MOTION,
+        selected: kbd,
+      });
     },
   };
 }
