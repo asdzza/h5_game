@@ -87,6 +87,11 @@ export function createAudio() {
     ui() {
       tone(740, 0.05, { type: 'sine', gain: 0.028 });
     },
+    // 撤销：一小段下滑音，呼应「倒着演」
+    rewind() {
+      tone(660, 0.12, { type: 'sine', gain: 0.03, to: 420 });
+      tone(420, 0.08, { type: 'triangle', gain: 0.02, to: 330, delay: 0.09 });
+    },
   };
 
   return {

@@ -13,6 +13,7 @@ import { LEVELS } from '../src/levels.js';
 import { parse as rParse, genA, applyA, countBlocks as rCount } from '../research/engine.mjs';
 import { LEVELS as RESEARCH_LEVELS } from '../research/levels_seed.mjs';
 import { aStar } from '../research/solver_fast.mjs';
+import { canStillWin } from '../src/solver.js';
 
 // 测试很重（A* 全量 50 关），没有输出会让人以为卡死。
 const TEST_T0 = Date.now();
@@ -2176,6 +2177,22 @@ for (const lv of RESEARCH_LEVELS) {
     b = applyA(b, bm.find((m) => sig(m) === sig(pick)));
   }
 }
+
+// ---- 7. 死局判定：par 内必可解、par-1 必无解（50 关交叉验证） ----
+progress('死局判定：50 关 par / par-1 交叉验证');
+{
+  const opts = { maxNodes: 500000, maxMs: 8000 };
+  for (const lv of LEVELS) {
+    const start = parse(lv.rows);
+    const yes = canStillWin(start, lv, lv.par, opts);
+    assert.equal(yes.win, true, `第 ${lv.id} 关：par ${lv.par} 步内应可解`);
+    assert.equal(yes.complete, true, `第 ${lv.id} 关：par 内的搜索应当算完`);
+    const no = canStillWin(start, lv, lv.par - 1, opts);
+    assert.equal(no.win, false, `第 ${lv.id} 关：par-1 步内不应有解`);
+    assert.equal(no.complete, true, `第 ${lv.id} 关：par-1 的搜索应当算完`);
+  }
+}
+progress('死局判定：50 关通过');
 
 progress('所有断言通过，输出汇总');
 console.log(
