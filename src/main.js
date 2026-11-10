@@ -22,6 +22,8 @@ const elName = document.getElementById('level-name');
 const elGoal = document.getElementById('goal');
 const elGoalText = document.getElementById('goal-text');
 const elMoves = document.getElementById('moves');
+const elMovesFill = document.getElementById('moves-fill');
+const elMovesPar = document.getElementById('moves-par');
 const elHint = document.getElementById('hint');
 const elWin = document.getElementById('win');
 const elWinKicker = document.getElementById('win-kicker');
@@ -131,10 +133,11 @@ function persist() {
   }
 }
 
-function setHint(text, revertAfter = 0) {
+function setHint(text, revertAfter = 0, tone = '') {
   clearTimeout(hintTimer);
   hintTimer = 0;
   elHint.textContent = text;
+  elHint.classList.toggle('is-warn', tone ? tone === 'warn' : deadNow);
   if (revertAfter) {
     hintTimer = setTimeout(() => {
       hintTimer = 0;
@@ -145,12 +148,21 @@ function setHint(text, revertAfter = 0) {
 
 function baseHint() {
   const pen = penaltyLine();
+  if (deadNow) {
+    return `现在的局面可能已经清不完了——撤销一步，或者重开还有救。${pen ? ` ${pen}` : ''}`;
+  }
   return `${level.teach}（${level.par} 步内 3★）${pen ? ` ${pen}` : ''}`;
 }
 
 function updateHud() {
   elMoves.textContent = `${moves} / ${level.limit}`;
   elMoves.classList.toggle('warn', moves >= level.limit - 1);
+  // 步数条：整条代表上限，填充代表已用，竖线标出三星线（par）
+  const ratio = Math.min(1, moves / level.limit);
+  elMovesFill.style.width = `${(ratio * 100).toFixed(1)}%`;
+  elMovesFill.classList.toggle('over-par', moves > level.par);
+  elMovesFill.classList.toggle('tight', moves >= level.limit - 1);
+  elMovesPar.style.left = `${((level.par / level.limit) * 100).toFixed(1)}%`;
   elMoves.title = `已用 ${moves} 步 · 上限 ${level.limit} 步 · ${level.par} 步内得 3★`;
   elMoves.setAttribute(
     'aria-label',
@@ -420,6 +432,7 @@ function showWin() {
   btnNext.textContent = levelIndex === LEVELS.length - 1 ? '选关' : '下一关';
   elWin.classList.remove('hidden');
   btnNext.focus({ preventScroll: true });
+  resetDeadCheck();
   setHint(`还剩 ${Math.max(0, level.limit - moves)} 步，不过已经不需要了。`);
   audio.play('win');
   persist();
@@ -428,10 +441,99 @@ function showWin() {
 function showFail() {
   failed = true;
   drag = null;
+  resetDeadCheck();
   elFail.classList.remove('hidden');
   btnFailUndo.focus({ preventScroll: true });
   setHint('步数用完了。撤销一步可以接着走，步数会退回来。');
   audio.play('fail');
+}
+
+// ---- 死局弱提示 ----
+// GDD 原本选择「局面清不完也什么都不说」，但对休闲玩家太残酷：
+// 「没救」往往是好几步之前造成的，玩家会带着「我还有机会」走完剩下的步数。
+// 这里把当前局面丢给后台 Worker 精确验算（剩余步数内是否还能赢），
+// 确认赢不了才给一句弱提示——不判负、不打断，撤销或重开都能救。
+let deadWorker = null;
+let deadBroken = false;
+let deadJob = 0;
+let deadBusy = false;
+let deadQueued = null;
+let deadNow = false;
+
+function resetDeadCheck() {
+  deadJob++;
+  deadBusy = false;
+  deadQueued = null;
+  deadNow = false;
+}
+
+function onDeadReply(ev) {
+  deadBusy = false;
+  const d = ev.data;
+  if (deadQueued && deadWorker) {
+    const next = deadQueued;
+    deadQueued = null;
+    deadBusy = true;
+    try {
+      deadWorker.postMessage(next);
+    } catch {
+      deadBusy = false;
+    }
+  }
+  if (!d || d.id !== deadJob || d.win || !d.complete) return;
+  if (deadNow || won || failed) return;
+  deadNow = true;
+  setHint(baseHint(), 0, 'warn');
+}
+
+function ensureDeadWorker() {
+  if (deadWorker || deadBroken) return deadWorker;
+  if (typeof Worker === 'undefined') {
+    deadBroken = true;
+    return null;
+  }
+  try {
+    deadWorker = new Worker(new URL('./dead-worker.js', import.meta.url), { type: 'module' });
+    deadWorker.onmessage = onDeadReply;
+    deadWorker.onerror = () => {
+      deadBroken = true;
+      deadWorker = null;
+      deadBusy = false;
+      deadQueued = null;
+    };
+  } catch {
+    deadBroken = true;
+    deadWorker = null;
+  }
+  return deadWorker;
+}
+
+function maybeCheckDead() {
+  if (deadNow || deadBroken || won || failed) return;
+  // 只在前两步之后查：第 1 步就走死的概率低，而且省掉开局的一次搜索
+  if (moves < 2) return;
+  const budget = level.limit - moves;
+  if (budget <= 0) return;
+  const w = ensureDeadWorker();
+  if (!w) return;
+  const job = {
+    id: ++deadJob,
+    w: state.w,
+    h: state.h,
+    c: Array.from(state.c),
+    level: { goal: level.goal, targetColor: level.targetColor },
+    budget,
+  };
+  if (deadBusy) {
+    deadQueued = job;
+    return;
+  }
+  deadBusy = true;
+  try {
+    w.postMessage(job);
+  } catch {
+    deadBusy = false;
+  }
 }
 
 function titleSeen() {
@@ -831,6 +933,7 @@ function loadLevel(index) {
   hintUsed = 0;
   clearTimeout(winCountTimer);
   winCountTimer = 0;
+  resetDeadCheck();
   cancelAnim();
   drag = null;
   won = false;
@@ -873,11 +976,11 @@ function commit({ r, c, dir }) {
     return;
   }
 
-  history.push({ state, moves, pops });
-  if (history.length > 300) history.shift();
-
   const before = state;
   const color = before.c[r * before.w + c];
+  history.push({ state, moves, pops, m, color });
+  if (history.length > 300) history.shift();
+
   state = applyMove(state, m);
   moves++;
   if (m.res === 'pop') pops++;
@@ -936,12 +1039,14 @@ function playAnim(next) {
       return;
     }
     requestDraw();
+    if (next.kind === 'rewind') return;
     if (won || failed) return;
     if (isGoal(state, level)) {
       showWin();
       return;
     }
     if (moves >= level.limit) showFail();
+    else maybeCheckDead();
   }, next.dur + 16);
 }
 
@@ -959,6 +1064,7 @@ function undo() {
   state = prev.state;
   moves = prev.moves;
   pops = prev.pops;
+  resetDeadCheck();
   if (failed) {
     failed = false;
     elFail.classList.add('hidden');
@@ -966,8 +1072,21 @@ function undo() {
   setHint(baseHint());
   updateHud();
   updateUndo();
-  audio.play('ui');
-  requestDraw();
+  // 撤销不是瞬移：把刚才那一步倒着演 160ms（减少动态时仍然直接跳回）
+  if (prev.m && !REDUCE_MOTION) {
+    audio.play('rewind');
+    playAnim({
+      kind: 'rewind',
+      m: prev.m,
+      color: prev.color,
+      t0: performance.now(),
+      dur: 160,
+    });
+    requestDraw();
+  } else {
+    audio.play('ui');
+    requestDraw();
+  }
 }
 
 function requestDraw() {
@@ -1129,6 +1248,9 @@ if (isLocalHost) {
     },
     get hintPenalty() {
       return hintUsed;
+    },
+    get deadNow() {
+      return deadNow;
     },
     get theme() {
       return theme;

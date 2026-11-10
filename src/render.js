@@ -379,6 +379,10 @@ export function draw(ctx, layout, state, fx = {}) {
       // state 里两块都已消失，无需跳过
     } else if (anim.kind === 'bounce') {
       skip.add(cellKey(anim.r, anim.c));
+    } else if (anim.kind === 'rewind') {
+      // 撤销时把「这一步」倒放：移动 = 幽灵块滑回原位；消除 = 两块在原位长回来
+      skip.add(cellKey(anim.m.r, anim.m.c));
+      if (anim.m.res === 'pop') skip.add(cellKey(anim.m.br, anim.m.bc));
     }
   }
 
@@ -476,6 +480,50 @@ export function draw(ctx, layout, state, fx = {}) {
         0,
         Math.PI * 2,
       );
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  // 撤销：把上一步倒着演一遍——玩家能看见「刚才那步被还回来了」
+  if (anim && anim.kind === 'rewind') {
+    const { m } = anim;
+    const dur = anim.dur || 150;
+    const p = clamp01((now - anim.t0) / dur);
+    const e = easeOut(p);
+    const pal = PALETTE[((anim.color - 1) % PALETTE.length + PALETTE.length) % PALETTE.length];
+    if (m.res === 'move') {
+      const x0 = bx + m.tc * cell;
+      const y0 = by + m.tr * cell;
+      const x1 = bx + m.c * cell;
+      const y1 = by + m.r * cell;
+      drawBlock(
+        ctx,
+        x0 + (x1 - x0) * e,
+        y0 + (y1 - y0) * e,
+        cell,
+        anim.color,
+        { scale: 1 + Math.sin(p * Math.PI) * 0.03, alpha: 0.5 + 0.5 * p },
+        t,
+      );
+    } else {
+      // 消除被撤销：两块在原位长回来，中间留一圈很淡的回环
+      const grow = 0.72 + 0.28 * e;
+      const alpha = 0.35 + 0.65 * p;
+      for (const [rr, cc] of [
+        [m.r, m.c],
+        [m.br, m.bc],
+      ]) {
+        drawBlock(ctx, bx + cc * cell, by + rr * cell, cell, anim.color, { scale: grow, alpha }, t);
+      }
+      const mx = bx + ((m.c + m.bc) / 2 + 0.5) * cell;
+      const my = by + ((m.r + m.br) / 2 + 0.5) * cell;
+      ctx.save();
+      ctx.globalAlpha = (1 - p) * 0.35;
+      ctx.strokeStyle = pal.light;
+      ctx.lineWidth = Math.max(1, cell * 0.03);
+      ctx.beginPath();
+      ctx.arc(mx, my, cell * (0.3 + e * 0.55), 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
