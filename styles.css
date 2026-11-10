@@ -371,6 +371,10 @@ body {
 
 .card {
   width: min(320px, 100%);
+  max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 26px 24px 22px;
   text-align: center;
   background: linear-gradient(180deg, var(--card-bg-top), var(--card-bg-bottom));
@@ -386,6 +390,19 @@ body {
   letter-spacing: 0.24em;
   color: var(--accent);
   text-transform: uppercase;
+}
+
+/* 阶段收尾的结算卡：换一套强调色，让「这一章打完了」看得出来 */
+.card.stage-end {
+  border-color: var(--solution-line-hover);
+  box-shadow:
+    0 30px 80px var(--card-shadow),
+    0 0 0 3px var(--solution-bg);
+}
+
+.card.stage-end .card-kicker {
+  color: var(--solution-text);
+  letter-spacing: 0.18em;
 }
 
 .card h2 {
@@ -683,6 +700,19 @@ body {
   color: var(--text) !important;
 }
 
+/* 标题页 3 秒循环小演示：相撞消失 + 撞墙停住 */
+.title-demo {
+  display: block;
+  width: 100%;
+  height: 86px;
+  margin: 0 0 14px;
+  border: 1px solid var(--hint-line);
+  border-radius: 14px;
+  background:
+    radial-gradient(120% 140% at 18% 0%, rgba(56, 189, 248, 0.08), transparent 62%),
+    var(--hint-bg);
+}
+
 .title-rules {
   margin: 0 0 14px;
 }
@@ -691,6 +721,30 @@ body {
   margin: 0 0 16px !important;
   font-size: 12px !important;
   color: var(--muted);
+}
+
+/* 小屏/矮屏：压缩标题页演示和间距，避免卡片高过视口 */
+@media (max-height: 640px) {
+  .title-card {
+    padding: 22px 22px 18px;
+  }
+  .title-card h1 {
+    font-size: 29px;
+    margin-bottom: 6px;
+  }
+  .title-demo {
+    height: 64px;
+    margin-bottom: 10px;
+  }
+  .title-tagline {
+    margin-bottom: 10px !important;
+  }
+  .title-rules {
+    margin-bottom: 10px;
+  }
+  .title-progress {
+    margin-bottom: 12px !important;
+  }
 }
 
 #title-levels {
