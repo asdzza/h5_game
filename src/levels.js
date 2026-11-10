@@ -71,6 +71,10 @@
 //
 // 难度不靠“加颜色 / 加墙 / 加尺寸”，而靠：目标是否要换、先后顺序是否耦合、
 // 停靠点是否要算准、容错步数是否收紧。颜色与墙只是空间复杂度，放在 S2 之后再当调味。
+//
+// challenge / caution：给玩家做“预期管理”，不改任何 par / limit。
+// 口径只限 S5：保持 par 的首步 ≤ 6 且 par ≥ 9（#42 6/9、#47 5/10、#48 4/9、#50 5/10）。
+// caution 是一句进关时播报的不泄题提醒，不写坐标、不写颜色代号，6 秒后自动回到 teach。
 
 export const TOTAL_LEVELS = 50;
 
@@ -931,6 +935,8 @@ export const LEVELS = [
     goal: 'clear',
     limit: 11,
     par: 9,
+    challenge: true,
+    caution: '这关难在“看错”，不在算得慢——动手前先想清楚每块最后停在哪。',
     teach:
       '十二块、五色，四个墙位都卡在通道口。同一个紫块要换两次刹车；用掉其中一个停车位，另一条路就没了。',
     nudge:
@@ -1038,6 +1044,8 @@ export const LEVELS = [
     goal: 'clear',
     limit: 12,
     par: 10,
+    challenge: true,
+    caution: '五色十步是长跑：先把整条顺序想好再动手，中途回头会很贵。',
     teach:
       '五色十二块，十步。十对里有四对是别人的刹车；留给最后一对的直线，才是这一关的关键。',
     nudge:
@@ -1060,6 +1068,8 @@ export const LEVELS = [
     targetColor: 1,
     limit: 10,
     par: 9,
+    challenge: true,
+    caution: '只有一步容错，墙又把下半盘切碎了：这关慢一点比快一点有用。',
     teach:
       '只清红块，四道墙把下半盘切成小格。红块要一格一格借墙、借蓝块挪到同伴旁边；蓝块停在哪里，会决定红块的路。',
     nudge:
@@ -1102,6 +1112,8 @@ export const LEVELS = [
     goal: 'clear',
     limit: 12,
     par: 10,
+    challenge: true,
+    caution: '毕业关：第一步就要决定谁当刹车，后面的链才接得上。',
     teach:
       '毕业关：五色十二块，五个耦合点。红块和紫块互相借位；第一次停错，后面几次借位都会找不到位置。',
     nudge:
