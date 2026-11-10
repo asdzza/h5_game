@@ -1346,7 +1346,7 @@ const solveLevel = (lv) => (lv.id <= 8 ? solve(lv) : astarPar(lv));
   assert.equal(astarPar(noWalls17), 6, '拆掉整排墙后 par 降为 6');
 }
 
-// ---- 4.18 第 18 关「挤一挤」 ----
+// ---- 4.18 第 18 关「挤一挤」：两颗锚块（绿 + 黄） ----
 {
   const lv = LEVELS[17];
   const st = parse(lv.rows);
@@ -1356,61 +1356,67 @@ const solveLevel = (lv) => (lv.id <= 8 ? solve(lv) : astarPar(lv));
 
   const counts = { 1: 0, 2: 0, 3: 0, 4: 0 };
   for (const v of st.c) if (v > 0) counts[v]++;
-  assert.deepEqual(counts, { 1: 2, 2: 2, 3: 2, 4: 2 }, '第 18 关应是 A2 B2 C2 D2');
+  assert.deepEqual(counts, { 1: 2, 2: 2, 3: 2, 4: 2 }, '第 18 关应是红2 蓝2 绿2 黄2');
 
   const walls = [];
   for (let r = 1; r <= 5; r++)
     for (let c = 1; c <= 5; c++) if (at(st, r, c) === -1) walls.push(`${r},${c}`);
   assert.deepEqual(walls, ['2,2', '2,4', '4,3'], '第 18 关应有三格内墙');
 
+  // 两颗钉子：绿 (3,3)、黄 (5,3)
+  const anchors = [];
+  for (let r = 0; r < st.h; r++)
+    for (let c = 0; c < st.w; c++) if (isFixed(st, r, c)) anchors.push(`${r},${c}:${at(st, r, c)}`);
+  assert.deepEqual(anchors, ['3,3:3', '5,3:4'], '第 18 关应有两颗锚块：绿 (3,3) 和黄 (5,3)');
+
+  for (const [ar, ac] of [[3, 3], [5, 3]]) {
+    for (const d of ['U', 'D', 'L', 'R']) {
+      assert.equal(moveFrom(st, ar, ac, d), null, `锚块 (${ar},${ac}) 向 ${d} 应拖不动`);
+    }
+    assert.equal(
+      legalMoves(st).filter((m) => m.r === ar && m.c === ac).length,
+      0,
+      `锚块 (${ar},${ac}) 不应出现在合法走法里`,
+    );
+  }
+
   assert.equal(astarPar(lv), 8);
 
   const firsts = legalMoves(st);
-  assert.equal(firsts.length, 15, '第 18 关开局应有 15 个合法走法');
+  assert.equal(firsts.length, 11, '第 18 关开局应有 11 个合法走法');
   assert.equal(firsts.filter((m) => m.res === 'pop').length, 0, '开局没有现成的配对');
 
-  // 绿块借左边的蓝块停在 (3,2)，落到最下面会合；蓝块横消打开中路
-  const cLeft = moveFrom(st, 3, 3, 'L');
-  assert.deepEqual(cLeft, { r: 3, c: 3, d: 'L', res: 'move', tr: 3, tc: 2 });
-  const s1 = applyMove(st, cLeft);
+  // 绿钉挡住蓝块的横向通路：蓝块右滑只能停在 (3,2)，绿钉还在时过不去
+  const bRight = moveFrom(st, 3, 1, 'R');
+  assert.deepEqual(bRight, { r: 3, c: 1, d: 'R', res: 'move', tr: 3, tc: 2 });
+  assert.equal(moveFrom(applyMove(st, bRight), 3, 2, 'R'), null, '绿钉还在时蓝块不能穿过去');
 
-  const cPop = moveFrom(s1, 3, 2, 'D');
-  assert.deepEqual(cPop, { r: 3, c: 2, d: 'D', res: 'pop', br: 5, bc: 2 });
-  const s2 = applyMove(s1, cPop);
+  // 黄钉挡住绿块向右：它只能先上到 (3,2)，再撞绿钉
+  assert.equal(moveFrom(st, 5, 2, 'R'), null, '黄钉挡住绿块向右');
 
-  const bPop = moveFrom(s2, 3, 1, 'R');
-  assert.deepEqual(bPop, { r: 3, c: 1, d: 'R', res: 'pop', br: 3, bc: 5 });
-  const s3 = applyMove(s2, bPop);
-
-  const aDown = moveFrom(s3, 1, 3, 'D');
-  assert.deepEqual(aDown, { r: 1, c: 3, d: 'D', res: 'move', tr: 3, tc: 3 });
-  const s4 = applyMove(s3, aDown);
-
-  const aRight = moveFrom(s4, 3, 3, 'R');
-  assert.deepEqual(aRight, { r: 3, c: 3, d: 'R', res: 'move', tr: 3, tc: 5 });
-  const s5 = applyMove(s4, aRight);
-
-  const aPop = moveFrom(s5, 2, 5, 'D');
-  assert.deepEqual(aPop, { r: 2, c: 5, d: 'D', res: 'pop', br: 3, bc: 5 });
-  const s6 = applyMove(s5, aPop);
-
-  const dRight = moveFrom(s6, 5, 3, 'R');
-  assert.deepEqual(dRight, { r: 5, c: 3, d: 'R', res: 'move', tr: 5, tc: 5 });
-  const s7 = applyMove(s6, dRight);
-
-  const dDown = moveFrom(s7, 1, 5, 'D');
-  assert.deepEqual(dDown, { r: 1, c: 5, d: 'D', res: 'pop', br: 5, bc: 5 });
-  const s8 = applyMove(s7, dDown);
-  assert.equal(isGoal(s8, lv), true, '八步后应清场');
-  assert.equal(countBlocks(s8), 0);
+  // 最优解：绿钉第 2 步、黄钉第 8 步
+  const tokens = SOLUTIONS[18].trim().split(/\s+/);
+  assert.equal(tokens.length, 8, '第 18 关回放应是 8 步');
+  let s = st;
+  const anchorPops = [];
+  tokens.forEach((tok, i) => {
+    const m = /^(\d+),(\d+)([UDLR])$/.exec(tok);
+    assert.ok(m, `第 18 关第 ${i + 1} 步格式不对：${tok}`);
+    const mv = moveFrom(s, Number(m[1]) - 1, Number(m[2]) - 1, m[3]);
+    assert.ok(mv, `第 18 关第 ${i + 1} 步走不动：${tok}`);
+    if (mv.res === 'pop' && (isFixed(s, mv.r, mv.c) || isFixed(s, mv.br, mv.bc))) {
+      anchorPops.push(i + 1);
+    }
+    s = applyMove(s, mv);
+  });
+  assert.deepEqual(anchorPops, [2, 8], '绿钉应第 2 步被撞掉，黄钉第 8 步');
+  assert.equal(isGoal(s, lv), true, '八步后应清场');
+  assert.equal(countBlocks(s), 0);
 
   const totals = firsts.map((m) => ({ m, total: astarTotal(lv, m) }));
   const optimal = totals.filter((x) => x.total === 8);
-  assert.equal(optimal.length, 3, '第 18 关应有 3 个最优首步');
-  assert.deepEqual(
-    optimal.map((x) => `${x.m.r},${x.m.c}${x.m.d}`).sort(),
-    ['3,3L', '5,2U', '5,3R'],
-  );
+  assert.equal(optimal.length, 1, '第 18 关应只有 1 个最优首步');
+  assert.deepEqual(optimal.map((x) => `${x.m.r},${x.m.c}${x.m.d}`), ['5,2U']);
   for (const x of totals) {
     assert.ok(
       Number.isFinite(x.total) && x.total <= lv.limit,
@@ -1419,16 +1425,25 @@ const solveLevel = (lv) => (lv.id <= 8 ? solve(lv) : astarPar(lv));
   }
   assert.equal(Math.max(...totals.map((x) => x.total)), 11);
 
+  // 墙仍然承重：(2,2) 是绿块向上滑的刹车，(2,4) 拆掉后中路提前打开
   const withoutWall = (wr, wc) =>
     astarPar({ ...lv, rows: lv.rows.map((row, i) => (i === wr ? row.slice(0, wc) + '.' + row.slice(wc + 1) : row)) });
-  assert.equal(withoutWall(2, 2), 8, '拿掉 (2,2) 后仍要 8 步');
+  assert.equal(withoutWall(2, 2), 10, '拿掉 (2,2) 后绿块失去向上的刹车，par 变成 10');
   assert.equal(withoutWall(2, 4), 7, '拿掉 (2,4) 后中路提前打开，par 降为 7');
   assert.equal(withoutWall(4, 3), 8, '拿掉 (4,3) 后仍要 8 步');
   const noWalls18 = {
     ...lv,
     rows: lv.rows.map((row, r) => (r === 0 || r === 6 ? row : '#' + row.slice(1, 6).replace(/#/g, '.') + '#')),
   };
-  assert.equal(astarPar(noWalls18), 7, '拆掉整组墙后 par 降为 7');
+  assert.equal(astarPar(noWalls18), 9, '拆掉整组墙后 par 变成 9');
+
+  // 钉子换成可动同色块：par 仍是 8——钉子约束的是走法，不是步数
+  const mobileRows = lv.rows.map((row) => row.replace('c', 'C').replace('d', 'D'));
+  const mst = parse(mobileRows);
+  assert.equal(isFixed(mst, 3, 3), false);
+  assert.equal(isFixed(mst, 5, 3), false);
+  assert.ok(moveFrom(mst, 3, 3, 'U'), '换成大写后绿块可以移动');
+  assert.equal(astarPar({ ...lv, rows: mobileRows }), 8, '拿掉两颗钉子后仍应是 8 步');
 }
 
 // ---- 4.19 第 19 关「只要红色·入门」 ----
