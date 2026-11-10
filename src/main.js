@@ -27,6 +27,7 @@ const elWin = document.getElementById('win');
 const elWinKicker = document.getElementById('win-kicker');
 const elWinText = document.getElementById('win-text');
 const elWinSub = document.getElementById('win-sub');
+const elWinCard = elWin.querySelector('.card');
 const elStars = document.getElementById('stars');
 const elFail = document.getElementById('fail');
 const elIntro = document.getElementById('intro');
@@ -41,6 +42,7 @@ const elSolutionNote = document.getElementById('solution-note');
 const elSolutionList = document.getElementById('solution-list');
 const btnTitleStart = document.getElementById('title-start');
 const btnTitleLevels = document.getElementById('title-levels');
+const elTitleDemo = document.getElementById('title-demo');
 const btnIntroOk = document.getElementById('intro-ok');
 const btnHelp = document.getElementById('help');
 const btnSound = document.getElementById('sound');
@@ -90,14 +92,10 @@ function readSave() {
 const save = readSave();
 if (!save.best || typeof save.best !== 'object') save.best = {};
 if (!save.stars || typeof save.stars !== 'object') save.stars = {};
-if (!save.hintPenalty || typeof save.hintPenalty !== 'object') save.hintPenalty = {};
-// 旧存档：assisted 只是「用过辅助」，按扣 1★ 迁移
-if (save.assisted && typeof save.assisted === 'object') {
-  for (const id of Object.keys(save.assisted)) {
-    if (save.assisted[id] && !save.hintPenalty[id]) save.hintPenalty[id] = 1;
-  }
-  delete save.assisted;
-}
+// 旧版本把「用过提示」永久记在存档里（assisted / hintPenalty），
+// 现在提示扣分只在本次尝试内有效，重开/再进关卡就能重新冲三星，旧的永久记录直接清掉。
+delete save.assisted;
+delete save.hintPenalty;
 
 let levelIndex = Math.max(
   0,
@@ -114,10 +112,13 @@ let won = false;
 let failed = false;
 let layout = computeLayout(320, 320, state.w, state.h);
 let hintTimer = 0;
+let winCountTimer = 0;
 let pops = 0;
 let pendingUndo = false;
 // 本次尝试已经点到第几层提示（0 没点过 / 1 小提示 / 2 下一步 / 3 完整解法）
 let hintStep = 0;
+// 本次尝试已经被提示扣掉几颗星（0–2）；重开或重新进入关卡时归零
+let hintUsed = 0;
 let rafId = 0;
 let currentCell = null;
 
@@ -187,32 +188,23 @@ function countColor(st, color) {
 // 第 1 次：只给方向性的小提示，免费。
 // 第 2 次：给出「下一步」，扣 1★。
 // 第 3 次：打开完整解法，再扣 1★。
-// 扣分按关卡永久累计（最多 2★），但阶梯位置每次重开都会回到第 1 层，
-// 已经付过的分数不会重复扣。
-function hintPenalty(id) {
-  const p = save.hintPenalty[id];
-  return typeof p === 'number' ? Math.min(2, Math.max(0, p)) : 0;
-}
-
+// 扣分只对「本次尝试」生效（最多 2★）：重开或重新进入关卡都会回到 0，
+// 所以用过提示也能靠重打把三星拿回来。
 function addHintPenalty(n) {
-  const cur = hintPenalty(level.id);
-  const next = Math.min(2, cur + n);
-  if (next === cur) return;
-  save.hintPenalty[level.id] = next;
-  persist();
+  hintUsed = Math.min(2, hintUsed + n);
 }
 
 function penaltyLine() {
-  const p = hintPenalty(level.id);
+  const p = hintUsed;
   if (!p) return '';
-  return `本关已用提示扣 ${p}★，最高 ${3 - p}★。`;
+  return `本次尝试已用提示扣 ${p}★，最高 ${3 - p}★。`;
 }
 
 // 阶梯按钮：文案与配色都跟着层级走，玩家能看出「再点一次会更贵」
 function updateHintButton() {
-  const p = hintPenalty(level.id);
+  const p = hintUsed;
   const labels = ['提示', '再看提示', '看解法'];
-  const paid = p ? `（本关已扣 ${p}★）` : '';
+  const paid = p ? `（本次已扣 ${p}★）` : '';
   btnHint.textContent = labels[Math.min(hintStep, 2)];
   // 只有「下一次点击要扣星」时才转琥珀色；重开后第一次仍免费
   btnHint.classList.toggle('escalated', hintStep >= 1);
@@ -305,8 +297,9 @@ function openSolution() {
   audio.play('ui');
 }
 
-function closeSolution() {
+function closeSolution({ restoreFocus = true } = {}) {
   elSolution.classList.add('hidden');
+  if (restoreFocus) btnHint.focus({ preventScroll: true });
 }
 
 function requestHint() {
@@ -360,13 +353,33 @@ function storedStars(lv) {
   if (typeof saved === 'number') return Math.min(3, Math.max(0, saved));
   const best = save.best[lv.id];
   if (best == null) return 0;
-  return starsFor(lv, best, hintPenalty(lv.id));
+  return starsFor(lv, best, 0);
+}
+
+// 结算仪式：步数从 0 跳到实际值，给「省了几步」一点存在感
+function countUpWinMoves(target, goalWord) {
+  clearTimeout(winCountTimer);
+  winCountTimer = 0;
+  if (REDUCE_MOTION || target <= 0) {
+    elWinText.textContent = `用 ${target} 步${goalWord}`;
+    return;
+  }
+  let n = 0;
+  elWinText.textContent = `用 0 步${goalWord}`;
+  // 先停 180 ms，确保 3 步以内的短关也能看见跳动
+  const step = () => {
+    n++;
+    elWinText.textContent = `用 ${n} 步${goalWord}`;
+    if (n < target) winCountTimer = setTimeout(step, 60);
+    else winCountTimer = 0;
+  };
+  winCountTimer = setTimeout(step, 180);
 }
 
 function showWin() {
   won = true;
   drag = null;
-  const penalty = hintPenalty(level.id);
+  const penalty = hintUsed;
   const stars = starsFor(level, moves, penalty);
   renderStars(stars);
 
@@ -377,8 +390,17 @@ function showWin() {
   const nextLevel = LEVELS[levelIndex + 1];
   const stageEnd = !nextLevel || nextLevel.stage !== level.stage;
   const stage = STAGES[level.stage];
-  elWinKicker.textContent = stageEnd ? `阶段 ${level.stage} 完成` : goalWord;
-  elWinText.textContent = `用 ${moves} 步${goalWord}`;
+  const stageEndNow = stageEnd && !!stage;
+  const stageName = stage ? stage.title.split('·').pop().trim() : '';
+  elWinKicker.textContent = stageEndNow ? `阶段 ${level.stage} 完成` : goalWord;
+  elWinCard.classList.toggle('stage-end', stageEndNow);
+  if (stageEndNow) {
+    clearTimeout(winCountTimer);
+    winCountTimer = 0;
+    elWinText.textContent = stageName;
+  } else {
+    countUpWinMoves(moves, goalWord);
+  }
 
   const best = save.best[level.id];
   if (best == null || moves < best) save.best[level.id] = moves;
@@ -391,8 +413,8 @@ function showWin() {
       : `最少 ${level.par} 步，多用了 ${moves - level.par} 步。`;
   const lines = [parLine];
   if (bestNow < moves) lines.push(`你的最好成绩：${bestNow} 步。`);
-  if (penalty > 0) lines.push(`本关用提示扣了 ${penalty}★，最高 ${3 - penalty}★。`);
-  if (stageEnd && stage) lines.push(`${stage.title} 完成——${stage.blurb}。`);
+  if (penalty > 0) lines.push(`本次用了提示，扣 ${penalty}★；重开重打可以把星拿回来。`);
+  if (stageEndNow) lines.push(`${stage.blurb}。`);
   elWinSub.textContent = lines.join(' ');
 
   btnNext.textContent = levelIndex === LEVELS.length - 1 ? '选关' : '下一关';
@@ -428,14 +450,156 @@ function updateTitleProgress() {
   btnTitleStart.textContent = hasProgress ? `继续第 ${level.id} 关` : '开始游戏';
 }
 
+// ---- 标题页小演示：3.4 s 循环，演示「相撞一起消失」和「撞墙停住」 ----
+const DEMO_LOOP = 3400;
+let demoRaf = 0;
+let demoT0 = 0;
+
+function demoRoundRect(c, x, y, w, h, r) {
+  const rr = Math.max(0, Math.min(r, w / 2, h / 2));
+  c.beginPath();
+  c.moveTo(x + rr, y);
+  c.arcTo(x + w, y, x + w, y + h, rr);
+  c.arcTo(x + w, y + h, x, y + h, rr);
+  c.arcTo(x, y + h, x, y, rr);
+  c.arcTo(x, y, x + w, y, rr);
+  c.closePath();
+}
+
+function demoBlock(c, x, y, size, color, scaleX = 1, scaleY = 1, alpha = 1) {
+  const w = size * scaleX;
+  const h = size * scaleY;
+  const dx = x + (size - w) / 2;
+  const dy = y + (size - h) / 2;
+  if (w < 0.5 || h < 0.5 || alpha <= 0) return;
+  c.save();
+  c.globalAlpha = alpha;
+  demoRoundRect(c, dx, dy, w, h, size * 0.22);
+  c.fillStyle = color;
+  c.fill();
+  c.globalAlpha = alpha * 0.3;
+  demoRoundRect(
+    c,
+    dx + w * 0.16,
+    dy + h * 0.12,
+    Math.max(1, w * 0.68),
+    Math.max(1, h * 0.2),
+    size * 0.1,
+  );
+  c.fillStyle = '#ffffff';
+  c.fill();
+  c.restore();
+}
+
+function drawTitleDemo(now) {
+  if (!elTitleDemo) return;
+  const c = elTitleDemo.getContext('2d');
+  if (!c) return;
+  const rect = elTitleDemo.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const cw = Math.max(1, Math.round(rect.width * dpr));
+  const ch = Math.max(1, Math.round(rect.height * dpr));
+  if (elTitleDemo.width !== cw || elTitleDemo.height !== ch) {
+    elTitleDemo.width = cw;
+    elTitleDemo.height = ch;
+  }
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const W = rect.width;
+  const H = rect.height;
+  c.clearRect(0, 0, W, H);
+  if (W < 8 || H < 8) return;
+
+  const cell = Math.max(20, Math.min(30, H * 0.31));
+  const padX = 14;
+  const topY = Math.round(H * 0.13);
+  const botY = Math.round(H - H * 0.13 - cell);
+  // 减少动态时停在「已相撞 / 已停住」的静态画面
+  const t = REDUCE_MOTION ? 950 : (now - demoT0) % DEMO_LOOP;
+  const ease = (p) => (p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2);
+  const clamp01 = (v) => Math.min(1, Math.max(0, v));
+
+  // 上排：两块红相撞，一起消失
+  {
+    const bx = W - padX - cell;
+    const ax0 = padX;
+    const ax1 = bx - cell;
+    const p = clamp01(t / 950);
+    const ax = ax0 + (ax1 - ax0) * ease(p);
+    const pop = REDUCE_MOTION ? 0 : clamp01((t - 950) / 320);
+    const shrink = pop > 0 ? Math.max(0, 1 - pop) : 1;
+    const alpha = pop > 0 ? 1 - pop : 1;
+    if (t < 1270 || REDUCE_MOTION) {
+      demoBlock(c, REDUCE_MOTION ? ax1 : ax, topY, cell, '#ef4444', 1 + pop * 0.12, 1 + pop * 0.12, alpha);
+      if (pop === 0) demoBlock(c, bx, topY, cell, '#ef4444');
+      else demoBlock(c, bx, topY, cell, '#ef4444', shrink, shrink, alpha);
+      if (pop > 0) {
+        c.save();
+        c.globalAlpha = (1 - pop) * 0.7;
+        c.strokeStyle = '#f87171';
+        c.lineWidth = Math.max(1, cell * 0.08);
+        c.beginPath();
+        c.arc(ax1 + cell / 2, topY + cell / 2, cell * (0.5 + pop * 0.9), 0, Math.PI * 2);
+        c.stroke();
+        c.restore();
+      }
+    }
+  }
+
+  // 下排：蓝块滑到墙前停住，轻轻压扁
+  {
+    const wallW = Math.max(4, cell * 0.2);
+    const wallX = W - padX - wallW;
+    const x0 = padX;
+    const x1 = wallX - cell;
+    const p = clamp01((t - 1700) / 950);
+    const x = x0 + (x1 - x0) * ease(p);
+    const squash = clamp01((t - 2650) / 260);
+    const k = Math.sin(squash * Math.PI) * 0.08 * (1 - squash);
+    c.save();
+    c.globalAlpha = 0.45;
+    demoRoundRect(c, wallX, botY - 2, wallW, cell + 4, wallW / 2);
+    c.fillStyle = '#94a3b8';
+    c.fill();
+    c.restore();
+    demoBlock(c, REDUCE_MOTION ? x1 : x, botY, cell, '#3b82f6', 1 + k, 1 - k);
+  }
+}
+
+function startTitleDemo() {
+  if (!elTitleDemo) return;
+  cancelAnimationFrame(demoRaf);
+  demoT0 = performance.now();
+  if (REDUCE_MOTION) {
+    demoRaf = 0;
+    drawTitleDemo(demoT0);
+    return;
+  }
+  const loop = (now) => {
+    if (elTitle.classList.contains('hidden')) {
+      demoRaf = 0;
+      return;
+    }
+    drawTitleDemo(now);
+    demoRaf = requestAnimationFrame(loop);
+  };
+  demoRaf = requestAnimationFrame(loop);
+}
+
+function stopTitleDemo() {
+  cancelAnimationFrame(demoRaf);
+  demoRaf = 0;
+}
+
 function openTitle() {
   updateTitleProgress();
   elTitle.classList.remove('hidden');
+  startTitleDemo();
   btnTitleStart.focus({ preventScroll: true });
 }
 
 function closeTitle({ showIntro = false } = {}) {
   elTitle.classList.add('hidden');
+  stopTitleDemo();
   try {
     localStorage.setItem(TITLE_KEY, '1');
     // 标题页已经讲了规则，首次进入不再叠一层玩法弹窗
@@ -664,6 +828,9 @@ function loadLevel(index) {
   pops = 0;
   pendingUndo = false;
   hintStep = 0;
+  hintUsed = 0;
+  clearTimeout(winCountTimer);
+  winCountTimer = 0;
   cancelAnim();
   drag = null;
   won = false;
@@ -672,7 +839,7 @@ function loadLevel(index) {
   elFail.classList.add('hidden');
   elLevels.classList.add('hidden');
   elTitle.classList.add('hidden');
-  closeSolution();
+  closeSolution({ restoreFocus: false });
   elLevel.textContent = `第 ${level.id} 关`;
   elName.textContent = level.name;
   updateGoal();
@@ -732,13 +899,6 @@ function commit({ r, c, dir }) {
       dur: HITSTOP + travel + 216,
     });
     audio.play('pop');
-    if (!REDUCE_MOTION) {
-      try {
-        navigator.vibrate?.(15);
-      } catch {
-        /* 某些浏览器不支持 */
-      }
-    }
   } else {
     const [dr, dc] = DIRS[dir];
     const hit = at(before, m.tr + dr, m.tc + dc);
@@ -967,13 +1127,15 @@ if (isLocalHost) {
     get hintStep() {
       return hintStep;
     },
+    get hintPenalty() {
+      return hintUsed;
+    },
     get theme() {
       return theme;
     },
     starsFor,
     twoStarLine,
     storedStars,
-    hintPenalty,
     requestHint,
     toggleTheme,
     setTheme(next) {

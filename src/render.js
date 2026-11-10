@@ -348,23 +348,9 @@ export function draw(ctx, layout, state, fx = {}) {
 
   ctx.clearRect(0, 0, cssW, cssH);
 
-  // 消除命中时的轻微回弹（reduced-motion 下关闭）
-  // 幅度控制在 1–2px、只走一个衰减周期，避免整屏「晃」带来的晕眩感
-  let shakeX = 0;
-  let shakeY = 0;
-  if (anim && anim.kind === 'pop' && !reduceMotion) {
-    const elapsed = now - anim.t0;
-    const impactAt = (anim.hitstop || 0) + (anim.travel || 0);
-    if (elapsed >= impactAt && elapsed < impactAt + 130) {
-      const k = (elapsed - impactAt) / 130;
-      const amp = cell * 0.022 * (1 - k) * (1 - k);
-      shakeX = Math.sin(k * Math.PI * 2) * amp;
-      shakeY = Math.cos(k * Math.PI * 2) * amp * 0.7;
-    }
-  }
-
+  // 消除反馈只保留「顿帧 + 粒子 + 冲击环」；不再做整屏位移，
+  // 玩家反馈「看着屏幕在晃」，所以视觉抖动与手机振动都已移除。
   ctx.save();
-  if (shakeX || shakeY) ctx.translate(shakeX, shakeY);
 
   // 背板
   const pad = cell * 0.18;
@@ -495,7 +481,7 @@ export function draw(ctx, layout, state, fx = {}) {
     }
   }
 
-  // 消除：60ms 顿帧 → 冲刺 → 放大消失 + 粒子 + 轻震
+  // 消除：60ms 顿帧 → 冲刺 → 放大消失 + 粒子 + 冲击环
   if (anim && anim.kind === 'pop') {
     const { m, before } = anim;
     const elapsed = now - anim.t0;
