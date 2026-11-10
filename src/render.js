@@ -781,6 +781,31 @@ export function draw(ctx, layout, state, fx = {}) {
     }
   }
 
+  // 键盘选中框：虚线 = 选中，实线 + 淡填充 = 已拿起
+  if (fx.selected && state.c[fx.selected.r * state.w + fx.selected.c] > 0) {
+    const { r, c, picked } = fx.selected;
+    const v = state.c[r * state.w + c];
+    const pal = PALETTE[(v - 1) % PALETTE.length];
+    const sx = bx + c * cell;
+    const sy = by + r * cell;
+    ctx.save();
+    if (picked) {
+      ctx.globalAlpha = 0.12;
+      ctx.fillStyle = pal.light;
+      roundRect(ctx, sx + cell * 0.04, sy + cell * 0.04, cell * 0.92, cell * 0.92, cell * 0.24);
+      ctx.fill();
+      ctx.globalAlpha = 0.95;
+    } else {
+      ctx.globalAlpha = 0.7;
+    }
+    ctx.strokeStyle = picked ? pal.light : t.ring;
+    ctx.lineWidth = Math.max(1.5, cell * 0.045);
+    ctx.setLineDash(picked ? [] : [cell * 0.16, cell * 0.1]);
+    roundRect(ctx, sx + cell * 0.055, sy + cell * 0.055, cell * 0.89, cell * 0.89, cell * 0.24);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   ctx.restore();
 }
 

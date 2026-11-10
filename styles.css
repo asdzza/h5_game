@@ -326,6 +326,31 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* 键盘焦点：用一圈强调色描边，不改变布局 */
+#board:focus {
+  outline: none;
+}
+
+#board:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 6px;
+  border-radius: 18px;
+}
+
+/* 只给读屏看的文字 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 #bottom {
   display: flex;
   flex-direction: column;
