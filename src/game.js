@@ -15,30 +15,36 @@ export const COLORS = ['A', 'B', 'C', 'D', 'E'];
 
 /**
  * rows: 字符画数组。'#' 墙 / '.' 空 / 'A'..'E' 颜色 / 'a'..'e' 同色锚块。
- * fixed 是静态掩码：锚块只在被同色撞掉时清除，其余时候整盘共享同一份。
+ * '1'..'5' 也是颜色，但同时把这一色标成「最后一对」：这一色的最后一次消除
+ * 必须是整盘最后一步。fixed 是静态掩码：锚块只在被同色撞掉时清除，
+ * 其余时候整盘共享同一份。
  */
 export function parse(rows) {
   const h = rows.length;
   const w = Math.max(...rows.map((r) => r.length));
   const c = new Int8Array(w * h);
   const fixed = new Uint8Array(w * h);
+  let lastColor = 0;
   for (let r = 0; r < h; r++) {
     for (let x = 0; x < w; x++) {
       const ch = rows[r][x] ?? '#';
       const i = r * w + x;
       if (ch === '#') c[i] = -1;
       else if (ch === '.') c[i] = 0;
-      else if (ch >= 'a' && ch <= 'e') {
+      else if (ch >= '1' && ch <= '5') {
+        c[i] = ch.charCodeAt(0) - 48;
+        lastColor = c[i];
+      } else if (ch >= 'a' && ch <= 'e') {
         c[i] = ch.charCodeAt(0) - 96;
         fixed[i] = 1;
       } else c[i] = ch.charCodeAt(0) - 64;
     }
   }
-  return { w, h, c, fixed };
+  return { w, h, c, fixed, lastColor };
 }
 
 export function clone(st) {
-  return { w: st.w, h: st.h, c: Int8Array.from(st.c), fixed: st.fixed };
+  return { w: st.w, h: st.h, c: Int8Array.from(st.c), fixed: st.fixed, lastColor: st.lastColor };
 }
 
 export function isFixed(st, r, c) {
@@ -63,8 +69,8 @@ export function colorsPresent(st) {
   return s;
 }
 
-/** 求单个方块沿某方向的走法；不合法返回 null */
-export function moveFrom(st, r, c, d) {
+/** 沿方向推演这一手；不追加「最后一对」规则，返回原始走法 */
+function traceMove(st, r, c, d) {
   const col = at(st, r, c);
   if (col <= 0) return null;
   if (isFixed(st, r, c)) return null;
@@ -93,6 +99,32 @@ export function moveFrom(st, r, c, d) {
     if (lr === r && lc === c) return null;
     return { r, c, d, res: 'move', tr: lr, tc: lc };
   }
+}
+
+/**
+ * 「最后一对」规则：lastColor 的最后一块（对）只能在整盘只剩它时消。
+ * 这一色还有 4 块时可以先消一对；只剩 2 块时，若盘上还有别的颜色，这一撞不合法。
+ */
+function lastPairLocked(st, m) {
+  if (!st.lastColor || m.res !== 'pop') return false;
+  const col = st.c[m.r * st.w + m.c];
+  if (col !== st.lastColor) return false;
+  let n = 0;
+  for (let i = 0; i < st.c.length; i++) if (st.c[i] === col) n++;
+  return n === 2 && countBlocks(st) !== 2;
+}
+
+/** 求单个方块沿某方向的走法；不合法返回 null */
+export function moveFrom(st, r, c, d) {
+  const m = traceMove(st, r, c, d);
+  if (!m) return null;
+  return lastPairLocked(st, m) ? null : m;
+}
+
+/** 给输入反馈用：这一手是否被「最后一对」挡住（而不是被墙 / 异色挡住） */
+export function isLastPairBlocked(st, r, c, d) {
+  const m = traceMove(st, r, c, d);
+  return m ? lastPairLocked(st, m) : false;
 }
 
 /** 当前局面全部合法走法 */

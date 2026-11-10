@@ -248,7 +248,7 @@ function drawEdgePattern(ctx, x, y, w, h, r, cell, colorIndex) {
 }
 
 function drawBlock(ctx, px, py, cell, colorIndex, opts = {}, t = BOARD_THEME.dark) {
-  const { scale = 1, alpha = 1, lift = 0, sx = 1, sy = 1, fixed = false } = opts;
+  const { scale = 1, alpha = 1, lift = 0, sx = 1, sy = 1, fixed = false, last = false } = opts;
   const inset = cell * 0.075;
   const base = (cell - inset * 2) * scale;
   const sizeX = base * sx;
@@ -319,6 +319,39 @@ function drawBlock(ctx, px, py, cell, colorIndex, opts = {}, t = BOARD_THEME.dar
     drawAnchorMark(ctx, x, y, sizeX, sizeY, cell, minSize);
   }
 
+  // 最后一对：右上角小方格旗，表示「这一色要留到最后」
+  if (last) drawLastMark(ctx, x, y, sizeX, sizeY, cell, minSize);
+
+  ctx.restore();
+}
+
+/** 「最后一对」标记：右上角的方格旗，和锚块的钉帽区分开 */
+function drawLastMark(ctx, x, y, sizeX, sizeY, cell, minSize) {
+  const s = minSize * 0.34;
+  const pad = Math.max(1, cell * 0.045);
+  const bx = x + sizeX - s - pad;
+  const by = y + pad;
+  const r = s * 0.24;
+  ctx.save();
+
+  ctx.fillStyle = 'rgba(15,23,42,.62)';
+  roundRect(ctx, bx, by, s, s, r);
+  ctx.fill();
+
+  const q = s * 0.26;
+  const ox = bx + s / 2 - q;
+  const oy = by + s / 2 - q;
+  ctx.fillStyle = 'rgba(248,250,252,.94)';
+  ctx.fillRect(ox, oy, q, q);
+  ctx.fillRect(ox + q, oy + q, q, q);
+  ctx.fillStyle = 'rgba(15,23,42,.9)';
+  ctx.fillRect(ox + q, oy, q, q);
+  ctx.fillRect(ox, oy + q, q, q);
+
+  ctx.strokeStyle = 'rgba(248,250,252,.78)';
+  ctx.lineWidth = Math.max(1, cell * 0.02);
+  roundRect(ctx, bx + 0.5, by + 0.5, s - 1, s - 1, r);
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -456,6 +489,7 @@ export function draw(ctx, layout, state, fx = {}) {
       const isDragged = drag && drag.r === r && drag.c === c;
       const opts = isDragged ? { scale: 1.07, lift: 0.02 } : {};
       if (isFixed(state, r, c)) opts.fixed = true;
+      if (state.lastColor === v) opts.last = true;
       drawBlock(ctx, px, py, cell, v, opts, t);
     }
   }
@@ -496,7 +530,7 @@ export function draw(ctx, layout, state, fx = {}) {
       py,
       cell,
       color,
-      { scale: 1 + Math.sin(animP * Math.PI) * 0.03, sx, sy },
+      { scale: 1 + Math.sin(animP * Math.PI) * 0.03, sx, sy, last: state.lastColor === color },
       t,
     );
 
@@ -537,7 +571,7 @@ export function draw(ctx, layout, state, fx = {}) {
         y0 + (y1 - y0) * e,
         cell,
         anim.color,
-        { scale: 1 + Math.sin(p * Math.PI) * 0.03, alpha: 0.5 + 0.5 * p },
+        { scale: 1 + Math.sin(p * Math.PI) * 0.03, alpha: 0.5 + 0.5 * p, last: state.lastColor === anim.color },
         t,
       );
     } else {
@@ -548,7 +582,7 @@ export function draw(ctx, layout, state, fx = {}) {
         [m.r, m.c],
         [m.br, m.bc],
       ]) {
-        drawBlock(ctx, bx + cc * cell, by + rr * cell, cell, anim.color, { scale: grow, alpha }, t);
+        drawBlock(ctx, bx + cc * cell, by + rr * cell, cell, anim.color, { scale: grow, alpha, last: state.lastColor === anim.color }, t);
       }
       const mx = bx + ((m.c + m.bc) / 2 + 0.5) * cell;
       const my = by + ((m.r + m.br) / 2 + 0.5) * cell;
@@ -596,6 +630,7 @@ export function draw(ctx, layout, state, fx = {}) {
       {
         scale: preScale + Math.sin(Math.min(1, travelP) * Math.PI) * 0.05,
         alpha: fade,
+        last: before.lastColor === color,
       },
       t,
     );

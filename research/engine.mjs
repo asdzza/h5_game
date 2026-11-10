@@ -8,29 +8,34 @@ export const DIRS = {
 };
 export const DIR_KEYS = ['U', 'D', 'L', 'R'];
 
-// rows: 数组，'#'=墙/虚空, '.'=空, 'A'..'E'=颜色, 'a'..'e'=同色锚块（不可拖，可被同色撞掉）
+// rows: 数组，'#'=墙/虚空, '.'=空, 'A'..'E'=颜色, 'a'..'e'=同色锚块（不可拖，可被同色撞掉）,
+// '1'..'5'=颜色并把该色标记为「最后一对」（最后一次消除必须是整盘最后一步）
 export function parse(rows) {
   const h = rows.length;
   const w = Math.max(...rows.map(r => r.length));
   const c = new Int8Array(w * h);
   const fixed = new Uint8Array(w * h);
+  let lastColor = 0;
   for (let r = 0; r < h; r++) {
     for (let x = 0; x < w; x++) {
       const ch = rows[r][x] ?? '#';
       const i = r * w + x;
       if (ch === '#') c[i] = -1;
       else if (ch === '.') c[i] = 0;
-      else if (ch >= 'a' && ch <= 'e') {
+      else if (ch >= '1' && ch <= '5') {
+        c[i] = ch.charCodeAt(0) - 48;
+        lastColor = c[i];
+      } else if (ch >= 'a' && ch <= 'e') {
         c[i] = ch.charCodeAt(0) - 96;
         fixed[i] = 1;
       } else c[i] = ch.charCodeAt(0) - 64;
     }
   }
-  return { w, h, c, fixed };
+  return { w, h, c, fixed, lastColor };
 }
 
 export function clone(st) {
-  return { w: st.w, h: st.h, c: Int8Array.from(st.c), fixed: st.fixed };
+  return { w: st.w, h: st.h, c: Int8Array.from(st.c), fixed: st.fixed, lastColor: st.lastColor };
 }
 
 export function isFixed(st, r, x) {
@@ -45,6 +50,7 @@ export function key(st) {
   if (st.fixed) {
     for (let i = 0; i < st.fixed.length; i++) if (st.fixed[i]) s += `|${i}`;
   }
+  if (st.lastColor) s += `|L${st.lastColor}`;
   return s;
 }
 
@@ -83,6 +89,13 @@ export function toRows(st) {
 
 // ---------- 方案A：单块滑动 ----------
 // 返回 legal moves: {r,c,d,res:'pop'|'move', br,bc, tr,tc}
+function lastPairLocked(st, r, c, col) {
+  if (!st.lastColor || col !== st.lastColor) return false;
+  let n = 0;
+  for (let i = 0; i < st.c.length; i++) if (st.c[i] === col) n++;
+  return n === 2 && countBlocks(st) !== 2;
+}
+
 export function genA(st) {
   const moves = [];
   for (let r = 0; r < st.h; r++) {
@@ -102,7 +115,9 @@ export function genA(st) {
           else { res = 'move'; }
           break;
         }
-        if (res === 'pop') moves.push({ r, c: x, d, res, br, bc: bx });
+        if (res === 'pop') {
+          if (!lastPairLocked(st, r, x, col)) moves.push({ r, c: x, d, res, br, bc: bx });
+        }
         else if (lr !== r || lx !== x) moves.push({ r, c: x, d, res: 'move', tr: lr, tc: lx });
       }
     }

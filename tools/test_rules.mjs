@@ -4,6 +4,7 @@ import {
   parse,
   legalMoves,
   moveFrom,
+  isLastPairBlocked,
   applyMove,
   isGoal,
   countBlocks,
@@ -76,7 +77,11 @@ const emptyCell = (lv, r, c) => ({
   ...lv,
   rows: lv.rows.map((row, i) => (i === r ? row.slice(0, c) + '.' + row.slice(c + 1) : row)),
 });
-const removeColor = (lv, ch) => ({ ...lv, rows: lv.rows.map((row) => row.split(ch).join('.')) });
+const removeColor = (lv, ch) => ({
+  ...lv,
+  // 整色拿掉时，对应数字标记（如 D 的 '4'）也要一起清掉，否则「最后一对」规则会残留
+  rows: lv.rows.map((row) => row.split(ch).join('.').split(String(ch.charCodeAt(0) - 64)).join('.')),
+});
 const solveLevel = (lv) => (lv.id <= 8 ? solve(lv) : astarPar(lv));
 
 // ---- 1. 第 1 关：拖动 + 同色消除 + 异色挡路（原第 1、2 关合并） ----
@@ -2088,10 +2093,10 @@ const solveLevel = (lv) => (lv.id <= 8 ? solve(lv) : astarPar(lv));
         [5, 2, 'R'],
         [3, 3, 'D'],
         [4, 3, 'L'],
-        [2, 3, 'D'],
-        [2, 5, 'D'],
         [3, 1, 'D'],
+        [2, 5, 'D'],
         [5, 4, 'R'],
+        [2, 3, 'D'],
       ],
     },
   ];
@@ -2163,6 +2168,88 @@ const solveLevel = (lv) => (lv.id <= 8 ? solve(lv) : astarPar(lv));
     assert.equal(astarPar(noWalls), cs.noWallsPar, `第 ${cs.id} 关拆掉整组墙后 par 应变为 ${cs.noWallsPar}`);
     assert.ok(cs.noWallsPar < cs.par, `第 ${cs.id} 关墙必须承重`);
   }
+}
+
+// ---- 4.22b 第 40 关：最后一对（黄色必须留到最后） ----
+{
+  const lv = LEVELS.find((l) => l.id === 40);
+  const st = parse(lv.rows);
+  assert.equal(lv.id, 40);
+  assert.equal(st.lastColor, 4, '第 40 关应把黄色标成最后一对');
+
+  const yellows = [];
+  for (let r = 0; r < st.h; r++)
+    for (let c = 0; c < st.w; c++) if (at(st, r, c) === 4) yellows.push(`${r},${c}`);
+  assert.deepEqual(yellows, ['2,3', '5,2'], '第 40 关应有两块黄块');
+
+  // 两块黄块本身能拖（不是锚块），只是「最后一次消除」被锁
+  assert.equal(isFixed(st, 2, 3), false);
+  assert.equal(isFixed(st, 5, 2), false);
+  assert.ok(moveFrom(st, 2, 3, 'R'), '第一块黄块应能向右滑');
+  assert.ok(moveFrom(st, 5, 2, 'R'), '第二块黄块应能向右滑');
+
+  // 按新解先走 5 步，把两块黄块凑到同一列：此时消黄会提前清完「最后一对」，必须被挡
+  const pre = [
+    [1, 3, 'R'],
+    [1, 2, 'R'],
+    [5, 2, 'R'],
+    [3, 3, 'D'],
+    [4, 3, 'L'],
+  ];
+  let s = st;
+  for (const [r, c, d] of pre) {
+    const m = moveFrom(s, r, c, d);
+    assert.ok(m, `第 40 关预热步骤 ${r},${c}${d} 应合法`);
+    s = applyMove(s, m);
+  }
+  assert.equal(at(s, 2, 3), 4);
+  assert.equal(at(s, 5, 3), 4);
+  assert.equal(moveFrom(s, 2, 3, 'D'), null, '还有别的颜色时，最后一对不能提前消');
+  assert.equal(
+    isLastPairBlocked(s, 2, 3, 'D'),
+    true,
+    '这次拦截应来自最后一条规则，而不是被墙或异色挡住',
+  );
+  assert.equal(
+    legalMoves(s).filter((m) => m.res === 'pop' && at(s, m.r, m.c) === 4).length,
+    0,
+    '最后一对的消除不应出现在合法走法里',
+  );
+
+  // 旧解把消黄放在第 6 步：现在这一步就该违规
+  const oldTokens = '2,4R 2,3R 6,3R 4,4D 5,4L 3,4D 3,6D 4,2D 6,5R'.split(' ');
+  let o = st;
+  let oldStep = 0;
+  for (const tok of oldTokens) {
+    const m = /^(\d+),(\d+)([UDLR])$/.exec(tok);
+    const mv = moveFrom(o, Number(m[1]) - 1, Number(m[2]) - 1, m[3]);
+    if (!mv) break;
+    o = applyMove(o, mv);
+    oldStep++;
+  }
+  assert.equal(oldStep, 5, '旧解应恰好走到第 5 步，第 6 步消黄被挡');
+
+  // 新解 9 步通关，且全程只有最后一步消黄
+  const tokens = SOLUTIONS[40].trim().split(/\s+/);
+  assert.equal(tokens.length, 9);
+  let n = st;
+  const yellowPops = [];
+  tokens.forEach((tok, i) => {
+    const m = /^(\d+),(\d+)([UDLR])$/.exec(tok);
+    assert.ok(m, `第 40 关第 ${i + 1} 步格式不对：${tok}`);
+    const mv = moveFrom(n, Number(m[1]) - 1, Number(m[2]) - 1, m[3]);
+    assert.ok(mv, `第 40 关第 ${i + 1} 步走不动：${tok}`);
+    if (mv.res === 'pop' && at(n, mv.r, mv.c) === 4) yellowPops.push(i + 1);
+    if (i === tokens.length - 2) assert.equal(countBlocks(n), 4, '第 40 关第 8 步时场上应还剩两对');
+    n = applyMove(n, mv);
+  });
+  assert.deepEqual(yellowPops, [9], '第 40 关只允许在最后一步消黄');
+  assert.equal(isGoal(n, lv), true, '九步后应通关');
+  assert.equal(countBlocks(n), 0);
+
+  // 规则本身不额外加步：把数字标记换回普通字母后 par 仍是 9
+  const plain = lv.rows.map((row) => row.split('4').join('D'));
+  assert.equal(astarPar({ ...lv, rows: plain }), 9, '关掉「最后一对」规则后 par 仍应是 9');
 }
 
 // ---- 4.23 第 41–50 关：S5 精算段（容错收紧，顺序耦合） ----
@@ -2368,7 +2455,7 @@ console.log(
     `第 19–20 关所有首步都在上限内可通关；第 19 关 5 个最优首步、拆墙后 par 不变；第 20 关 3 个最优首步、拆整组墙后 par 降为 3；两关的非目标块拿掉后 par 都会变；` +
     `第 21–25 关所有首步都在上限内可通关，最优首步分别为 3/3/5/4/2 个，每种非目标色整色拿掉后 par 都变，拆整组墙后 par 分别降为 4/4/4/4/3；` +
     `第 26–30 关所有首步都在上限内可通关，最优首步分别为 4/3/4/5/3 个，每种非目标色整色拿掉后 par 都变，拆整组墙后 par 分别降为 4/4/4/5/4；第 30 关两颗红钉都拖不动、第 5/7 步被撞掉，红钉可动化后 par 仍是 7；` +
-    `第 31–40 关所有首步都在上限内可通关，最优首步分别为 5/6/7/5/5/6/8/8/6/5 个；第 31–37 关与第 39、40 关每种颜色整色拿掉后 par 都变，第 38 关每种非目标色整色拿掉后 par 都变；拆整组墙后 par 分别降为 6/7/6/9/7/6/7/4/8/7；` +
+    `第 31–40 关所有首步都在上限内可通关，最优首步分别为 5/6/7/5/5/6/8/8/6/5 个；第 31–37 关与第 39、40 关每种颜色整色拿掉后 par 都变，第 38 关每种非目标色整色拿掉后 par 都变；拆整组墙后 par 分别降为 6/7/6/9/7/6/7/4/8/7；第 40 关两块黄块可动但提前消会被「最后一对」挡住，旧解第 6 步违规，新解 9 步且最后一步才消黄，关掉该规则后 par 仍是 9；` +
     `第 41–50 关（S5）全部在 par+1/+2 上限内可通关，par 分别为 9/9/8/7/9/9/10/9/10/10，最优首步 8/6/4/7/8/8/5/4/7/5 个；仅第 43、48 关为 par+1，其余为 par+2；拆整组墙后 par 分别降为 7/8/4/3/8/7/9/4/9/8；` +
     `与 research 引擎对拍 ${compared} 个状态一致。`,
 );

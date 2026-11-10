@@ -1,6 +1,7 @@
 import {
   parse,
   moveFrom,
+  isLastPairBlocked,
   applyMove,
   isGoal,
   moveDistance,
@@ -215,9 +216,12 @@ function updateBoardA11y() {
     level.goal === 'color' ? `只清${COLOR_NAMES[level.targetColor - 1]}块` : '清空全场';
   const countsText = parts.length ? parts.join('，') : '场上没有方块';
   const pinnedText = pinned ? `，其中 ${pinned} 个带钉子，拖不动，要用同色块撞掉` : '';
+  const lastText = state.lastColor
+    ? `，${COLOR_NAMES[state.lastColor - 1]}块是最后一对，必须等别的颜色都清完才能消`
+    : '';
   canvas.setAttribute(
     'aria-label',
-    `第 ${level.id} 关 ${level.name}${level.challenge ? '，挑战关' : ''}。目标${goal}。场上${countsText}${pinnedText}。已用 ${moves} 步，上限 ${level.limit} 步，${level.par} 步内三星。方向键选块，空格拿起。`,
+    `第 ${level.id} 关 ${level.name}${level.challenge ? '，挑战关' : ''}。目标${goal}。场上${countsText}${pinnedText}${lastText}。已用 ${moves} 步，上限 ${level.limit} 步，${level.par} 步内三星。方向键选块，空格拿起。`,
   );
 }
 
@@ -747,6 +751,7 @@ function maybeCheckDead() {
     h: state.h,
     c: Array.from(state.c),
     fixed: state.fixed ? Array.from(state.fixed) : null,
+    lastColor: state.lastColor || 0,
     level: { goal: level.goal, targetColor: level.targetColor },
     budget,
   };
@@ -1328,6 +1333,9 @@ function invalidHint(r, c, dir) {
   if (isFixed(state, r, c)) {
     return '这块被钉死了，拖不动——用同色块撞它才能拆掉。';
   }
+  if (isLastPairBlocked(state, r, c, dir)) {
+    return '这是最后一对——先把别的颜色清完，它才能消。';
+  }
   const [dr, dc] = DIRS[dir];
   const next = at(state, r + dr, c + dc);
   if (next > 0 && next !== self) {
@@ -1799,6 +1807,9 @@ if (isLocalHost) {
     },
     get fixed() {
       return state.fixed ? Array.from(state.fixed) : null;
+    },
+    get lastColor() {
+      return state.lastColor || 0;
     },
     get layout() {
       return layout;
