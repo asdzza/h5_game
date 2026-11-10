@@ -51,7 +51,7 @@
   --line-mid: rgba(15, 23, 42, 0.14);
   --line-strong: rgba(15, 23, 42, 0.26);
   --text: #101a2c;
-  --muted: rgba(16, 26, 44, 0.58);
+  --muted: rgba(16, 26, 44, 0.62);
   --accent: #0284c7;
   --surface: rgba(15, 23, 42, 0.045);
   --surface-hover: rgba(15, 23, 42, 0.085);
@@ -111,7 +111,7 @@ body {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   padding: 14px 18px 6px;
 }
 
@@ -119,6 +119,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -146,12 +147,12 @@ body {
   margin-top: 5px;
   padding: 4px 10px 4px 7px;
   font-size: 12.5px;
-  line-height: 1.2;
+  line-height: 1.25;
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 999px;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 #goal.is-color {
@@ -174,6 +175,10 @@ body {
   text-overflow: ellipsis;
 }
 
+.goal-prefix {
+  color: var(--muted);
+}
+
 #goal.is-color .goal-dot {
   background: var(--goal-color, #ef4444);
   box-shadow: 0 0 0 1px var(--inset-ring-strong) inset, 0 0 8px -1px var(--goal-color, #ef4444);
@@ -186,7 +191,12 @@ body {
   flex-shrink: 0;
 }
 
+.hud-right > * {
+  flex: 0 0 auto;
+}
+
 .icon-btn {
+  position: relative;
   width: 30px;
   height: 30px;
   display: grid;
@@ -201,6 +211,14 @@ body {
   border-radius: 999px;
   cursor: pointer;
   transition: color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+
+/* 视觉上仍是 30px，热区向上/下扩到 44px，左右只扩到不压住相邻按钮 */
+.icon-btn::before {
+  content: '';
+  position: absolute;
+  inset: -7px -4px;
+  border-radius: 999px;
 }
 
 .icon-btn:hover {
@@ -333,6 +351,20 @@ body {
   border-color: var(--solution-line-hover);
 }
 
+.solution-btn.armed {
+  animation: armed-pulse 0.9s ease-in-out infinite;
+}
+
+@keyframes armed-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.15);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(251, 191, 36, 0.22);
+  }
+}
+
 .overlay {
   position: fixed;
   inset: 0;
@@ -385,7 +417,8 @@ body {
 #intro-ok,
 #next,
 #fail-undo,
-#solution-close {
+#solution-close,
+#title-start {
   font: inherit;
   font-size: 15px;
   font-weight: 600;
@@ -402,7 +435,8 @@ body {
 #intro-ok:active,
 #next:active,
 #fail-undo:active,
-#solution-close:active {
+#solution-close:active,
+#title-start:active {
   transform: translateY(1px);
 }
 
@@ -513,6 +547,31 @@ body {
   overscroll-behavior: contain;
 }
 
+.stage-head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 12px 2px 2px;
+  text-align: left;
+}
+
+.stage-head:first-child {
+  padding-top: 0;
+}
+
+.stage-head strong {
+  font-size: 12.5px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  color: var(--text);
+}
+
+.stage-head span {
+  font-size: 11px;
+  color: var(--muted);
+}
+
 #levels-close {
   flex: 0 0 auto;
 }
@@ -547,6 +606,7 @@ body {
   border-color: rgba(125, 211, 252, 0.7);
   background: rgba(125, 211, 252, 0.12);
   box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.22);
+  animation: current-breathe 2.4s ease-in-out infinite;
 }
 
 .level-cell.locked {
@@ -565,7 +625,7 @@ body {
 .mini-stars {
   display: flex;
   gap: 1px;
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1;
   color: var(--star-off);
 }
@@ -573,6 +633,16 @@ body {
 .mini-stars span.on {
   color: #fbbf24;
   text-shadow: 0 0 6px rgba(251, 191, 36, 0.4);
+}
+
+.level-cell .lname {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+  line-height: 1.1;
+  color: var(--muted);
 }
 
 .level-cell .lock {
@@ -589,7 +659,106 @@ body {
     font-size: 12px;
   }
   .mini-stars {
+    font-size: 10px;
+  }
+  .level-cell .lname {
     font-size: 8px;
+  }
+  .stage-head {
+    gap: 6px;
+  }
+  .stage-head strong {
+    font-size: 12px;
+  }
+  .stage-head span {
+    font-size: 10px;
+  }
+}
+
+/* 标题页：第一次打开时给作品一个“开场” */
+.title-card {
+  width: min(380px, 100%);
+  padding: 32px 26px 24px;
+}
+
+.title-card h1 {
+  margin: 0 0 10px;
+  font-size: 34px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  line-height: 1.15;
+}
+
+.title-tagline {
+  margin: 0 0 14px !important;
+  font-size: 14px !important;
+  line-height: 1.6 !important;
+  color: var(--text) !important;
+}
+
+.title-rules {
+  margin: 0 0 14px;
+}
+
+.title-progress {
+  margin: 0 0 16px !important;
+  font-size: 12px !important;
+  color: var(--muted);
+}
+
+#title-levels {
+  margin-top: 8px;
+}
+
+@keyframes current-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.22);
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgba(125, 211, 252, 0.16);
+  }
+}
+
+/* 横屏手机：棋盘会被压到无法操作，直接提示旋转 */
+#rotate {
+  display: none;
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  #rotate {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: var(--overlay);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .rotate-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    max-width: 320px;
+    text-align: center;
+  }
+  .rotate-icon {
+    font-size: 34px;
+    line-height: 1;
+    color: var(--accent);
+    transform: rotate(90deg);
+  }
+  .rotate-inner strong {
+    font-size: 20px;
+  }
+  .rotate-inner span:last-child {
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--muted);
   }
 }
 
@@ -676,17 +845,102 @@ body {
 }
 
 @media (max-width: 380px) {
-  .action-btn {
-    font-size: 13.5px;
+  #hud {
+    gap: 8px;
+    padding: 10px 12px 4px;
+  }
+  #level-label {
+    font-size: 11px;
+  }
+  #level-name {
+    font-size: 17px;
+  }
+  #goal {
+    gap: 5px;
+    padding: 3px 8px 3px 6px;
+    font-size: 11.5px;
+  }
+  .goal-dot {
+    width: 9px;
+    height: 9px;
   }
   .hud-right {
-    gap: 6px;
+    gap: 4px;
   }
   .icon-btn {
     width: 28px;
     height: 28px;
+    font-size: 12px;
+  }
+  .icon-btn::before {
+    inset: -6px -2px;
   }
   #moves {
-    padding: 5px 8px;
+    padding: 5px 7px;
+    font-size: 12px;
   }
+  .action-btn {
+    font-size: 13.5px;
+  }
+}
+
+@media (max-width: 340px) {
+  #hud {
+    gap: 6px;
+    padding: 8px 10px 2px;
+  }
+  #level-label {
+    font-size: 10.5px;
+  }
+  #level-name {
+    font-size: 16px;
+  }
+  #goal {
+    font-size: 11px;
+  }
+  .goal-prefix {
+    display: none;
+  }
+  .hud-right {
+    gap: 3px;
+  }
+  .icon-btn {
+    width: 26px;
+    height: 26px;
+    font-size: 11px;
+  }
+  .icon-btn::before {
+    inset: -7px -1px;
+  }
+  #moves {
+    padding: 4px 6px;
+    font-size: 11.5px;
+  }
+  #bottom {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  #hint {
+    font-size: 12px;
+    padding: 8px 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .level-cell.current {
+    animation: none;
+  }
+}
+
+button:focus-visible,
+.icon-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
