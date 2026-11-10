@@ -214,7 +214,8 @@ function updateHintButton() {
   const labels = ['提示', '再看提示', '看解法'];
   const paid = p ? `（本关已扣 ${p}★）` : '';
   btnHint.textContent = labels[Math.min(hintStep, 2)];
-  btnHint.classList.toggle('escalated', hintStep >= 1 || p > 0);
+  // 只有「下一次点击要扣星」时才转琥珀色；重开后第一次仍免费
+  btnHint.classList.toggle('escalated', hintStep >= 1);
   if (hintStep === 0) {
     btnHint.title = `提示：第一次只给方向性的小提示，不扣星${paid}`;
     btnHint.setAttribute('aria-label', `提示，第一次不扣星${paid}`);
