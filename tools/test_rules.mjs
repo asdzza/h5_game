@@ -1717,13 +1717,13 @@ const solveLevel = (lv) => (lv.id <= 8 ? solve(lv) : astarPar(lv));
       walls: ['2,2', '2,4', '4,2', '4,4'],
       par: 7,
       limit: 9,
-      firsts: 15,
-      optimal: 5,
+      firsts: 11,
+      optimal: 3,
       worst: 9,
       openPops: 0,
-      loads: { B: 6, C: 4, D: 4 },
+      loads: { B: 8, C: 6, D: 4 },
       noWallsPar: 4,
-      path: [[2, 3, 'D'], [5, 3, 'R'], [3, 5, 'L'], [2, 5, 'D'], [1, 4, 'R'], [1, 5, 'D'], [3, 1, 'R']],
+      path: [[3, 5, 'D'], [2, 5, 'D'], [3, 5, 'L'], [4, 5, 'U'], [1, 5, 'L'], [5, 4, 'L'], [5, 3, 'U']],
     },
   ];
 
@@ -1785,6 +1785,78 @@ const solveLevel = (lv) => (lv.id <= 8 ? solve(lv) : astarPar(lv));
     assert.equal(astarPar(noWalls), cs.noWallsPar, `第 ${cs.id} 关拆掉整组墙后 par 应变为 ${cs.noWallsPar}`);
     assert.ok(cs.noWallsPar < cs.par, `第 ${cs.id} 关墙必须承重`);
   }
+}
+
+// ---- 4.21b 第 30 关：目标色锚块（红钉） ----
+{
+  const lv = LEVELS[29];
+  const st = parse(lv.rows);
+  assert.equal(lv.id, 30);
+  assert.equal(lv.goal, 'color');
+  assert.equal(lv.targetColor, 1);
+  assert.equal(lv.limit, 9);
+  assert.equal(countBlocks(st), 10);
+  assert.equal(st.c.filter((v) => v === 1).length, 4, '第 30 关应有 4 块红块');
+
+  // 两颗红钉：(1,4)、(2,3)
+  const anchors = [];
+  for (let r = 0; r < st.h; r++)
+    for (let c = 0; c < st.w; c++) if (isFixed(st, r, c)) anchors.push(`${r},${c}:${at(st, r, c)}`);
+  assert.deepEqual(anchors, ['1,4:1', '2,3:1'], '第 30 关应有两颗红锚块');
+
+  for (const [ar, ac] of [[1, 4], [2, 3]]) {
+    for (const d of ['U', 'D', 'L', 'R']) {
+      assert.equal(moveFrom(st, ar, ac, d), null, `红钉 (${ar},${ac}) 向 ${d} 应拖不动`);
+    }
+    assert.equal(
+      legalMoves(st).filter((m) => m.r === ar && m.c === ac).length,
+      0,
+      `红钉 (${ar},${ac}) 不应出现在合法走法里`,
+    );
+  }
+
+  // 四道墙单独拿掉都会让 par 变化
+  const withoutWall = (wr, wc) =>
+    astarPar({ ...lv, rows: lv.rows.map((row, i) => (i === wr ? row.slice(0, wc) + '.' + row.slice(wc + 1) : row)) });
+  assert.equal(withoutWall(2, 2), 6, '拿掉 (2,2) 后 par 应降为 6');
+  assert.equal(withoutWall(2, 4), 5, '拿掉 (2,4) 后 par 应降为 5');
+  assert.equal(withoutWall(4, 2), 6, '拿掉 (4,2) 后 par 应降为 6');
+  assert.equal(withoutWall(4, 4), 6, '拿掉 (4,4) 后 par 应降为 6');
+
+  // 回放：红钉第 5、7 步被撞掉
+  const tokens = SOLUTIONS[30].trim().split(/\s+/);
+  assert.equal(tokens.length, 7, '第 30 关回放应是 7 步');
+  let s = st;
+  const anchorPops = [];
+  tokens.forEach((tok, i) => {
+    const m = /^(\d+),(\d+)([UDLR])$/.exec(tok);
+    assert.ok(m, `第 30 关第 ${i + 1} 步格式不对：${tok}`);
+    const mv = moveFrom(s, Number(m[1]) - 1, Number(m[2]) - 1, m[3]);
+    assert.ok(mv, `第 30 关第 ${i + 1} 步走不动：${tok}`);
+    if (mv.res === 'pop' && (isFixed(s, mv.r, mv.c) || isFixed(s, mv.br, mv.bc))) anchorPops.push(i + 1);
+    s = applyMove(s, mv);
+  });
+  assert.deepEqual(anchorPops, [5, 7], '第一颗红钉应第 5 步被撞掉，第二颗第 7 步');
+  assert.equal(isGoal(s, lv), true, '七步后应清完红色');
+  assert.equal(s.c.filter((v) => v === 1).length, 0);
+
+  const firsts = legalMoves(st);
+  assert.equal(firsts.length, 11, '第 30 关开局应有 11 个合法走法');
+  const totals = firsts.map((m) => ({ m, total: astarTotal(lv, m) }));
+  const optimal = totals.filter((x) => x.total === 7);
+  assert.equal(optimal.length, 3, '第 30 关应有 3 个最优首步');
+  assert.deepEqual(optimal.map((x) => `${x.m.r},${x.m.c}${x.m.d}`).sort(), ['3,5D', '3,5L', '5,4L']);
+  assert.equal(Math.max(...totals.map((x) => x.total)), 9);
+  for (const x of totals) {
+    assert.ok(Number.isFinite(x.total) && x.total <= lv.limit, `首步之后仍应能在 ${lv.limit} 步内清完红色`);
+  }
+
+  // 钉子可动化后 par 不变：压力来自「把红块送到钉子面前」的路线，不是省步
+  const mobileRows = lv.rows.map((row) => row.replace('a', 'A'));
+  const mst = parse(mobileRows);
+  assert.equal(isFixed(mst, 1, 4), false);
+  assert.equal(isFixed(mst, 2, 3), false);
+  assert.equal(astarPar({ ...lv, rows: mobileRows }), 7, '红钉可动化后仍应是 7 步');
 }
 
 // ---- 4.22 第 31–40 关：S4 耦合段（清场为主，顺序决定落点） ----
@@ -2295,7 +2367,7 @@ console.log(
     `第 13–18 关所有首步都在上限内可通关；第 13–18 关最优首步分别为 4/4/3/2/3/3 个，拆掉整组墙后 par 分别降为 7/5/6/6/6/7；` +
     `第 19–20 关所有首步都在上限内可通关；第 19 关 5 个最优首步、拆墙后 par 不变；第 20 关 3 个最优首步、拆整组墙后 par 降为 3；两关的非目标块拿掉后 par 都会变；` +
     `第 21–25 关所有首步都在上限内可通关，最优首步分别为 3/3/5/4/2 个，每种非目标色整色拿掉后 par 都变，拆整组墙后 par 分别降为 4/4/4/4/3；` +
-    `第 26–30 关所有首步都在上限内可通关，最优首步分别为 4/3/4/5/5 个，每种非目标色整色拿掉后 par 都变，拆整组墙后 par 分别降为 4/4/4/5/4；` +
+    `第 26–30 关所有首步都在上限内可通关，最优首步分别为 4/3/4/5/3 个，每种非目标色整色拿掉后 par 都变，拆整组墙后 par 分别降为 4/4/4/5/4；第 30 关两颗红钉都拖不动、第 5/7 步被撞掉，红钉可动化后 par 仍是 7；` +
     `第 31–40 关所有首步都在上限内可通关，最优首步分别为 5/6/7/5/5/6/8/8/6/5 个；第 31–37 关与第 39、40 关每种颜色整色拿掉后 par 都变，第 38 关每种非目标色整色拿掉后 par 都变；拆整组墙后 par 分别降为 6/7/6/9/7/6/7/4/8/7；` +
     `第 41–50 关（S5）全部在 par+1/+2 上限内可通关，par 分别为 9/9/8/7/9/9/10/9/10/10，最优首步 8/6/4/7/8/8/5/4/7/5 个；仅第 43、48 关为 par+1，其余为 par+2；拆整组墙后 par 分别降为 7/8/4/3/8/7/9/4/9/8；` +
     `与 research 引擎对拍 ${compared} 个状态一致。`,
