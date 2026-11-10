@@ -13,14 +13,20 @@ import { applyMove, countBlocks, isGoal, legalMoves } from './game.js';
 
 const COLOR_SLOTS = 5;
 
-/** 局面编码：同色块互换位置视为同一局面，减少重复展开 */
+/**
+ * 局面编码：同色块互换位置视为同一局面，减少重复展开。
+ * 锚块必须从同色块里单独拎出来——它不能动，和"同色的普通块"不是同一局面。
+ */
 function canonical(st) {
+  const anchors = [];
   const pos = [[], [], [], [], []];
   for (let i = 0; i < st.c.length; i++) {
     const v = st.c[i];
-    if (v > 0) pos[v - 1].push(i);
+    if (v <= 0) continue;
+    if (st.fixed && st.fixed[i]) anchors.push(i);
+    else pos[v - 1].push(i);
   }
-  let key = '';
+  let key = `f:${anchors.join(',')};`;
   for (let k = 0; k < COLOR_SLOTS; k++) {
     const list = pos[k];
     if (!list.length) continue;

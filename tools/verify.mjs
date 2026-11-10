@@ -37,6 +37,7 @@ function key(st) {
     const v = st.c[i];
     if (v > 0) s += String.fromCharCode(i + 33) + String.fromCharCode(v + 48);
   }
+  if (st.fixed) for (let i = 0; i < st.fixed.length; i++) if (st.fixed[i]) s += `|${i}`;
   return s;
 }
 

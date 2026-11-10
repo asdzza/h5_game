@@ -6,28 +6,44 @@
  *  - 命中异色：停在它旁边，不推动
  *  - 命中同色：两块一起消失
  *  - 0 位移且未消除：非法操作
+ *  - 锚块（小写 a–e）：不能被拖动，但被同色撞到会一起消失
  */
 
 export const DIRS = { U: [-1, 0], D: [1, 0], L: [0, -1], R: [0, 1] };
 export const DIR_KEYS = ['U', 'D', 'L', 'R'];
 export const COLORS = ['A', 'B', 'C', 'D', 'E'];
 
-/** rows: 字符画数组。'#' 墙 / '.' 空 / 'A'..'E' 颜色 */
+/**
+ * rows: 字符画数组。'#' 墙 / '.' 空 / 'A'..'E' 颜色 / 'a'..'e' 同色锚块。
+ * fixed 是静态掩码：锚块只在被同色撞掉时清除，其余时候整盘共享同一份。
+ */
 export function parse(rows) {
   const h = rows.length;
   const w = Math.max(...rows.map((r) => r.length));
   const c = new Int8Array(w * h);
+  const fixed = new Uint8Array(w * h);
   for (let r = 0; r < h; r++) {
     for (let x = 0; x < w; x++) {
       const ch = rows[r][x] ?? '#';
-      c[r * w + x] = ch === '#' ? -1 : ch === '.' ? 0 : ch.charCodeAt(0) - 64;
+      const i = r * w + x;
+      if (ch === '#') c[i] = -1;
+      else if (ch === '.') c[i] = 0;
+      else if (ch >= 'a' && ch <= 'e') {
+        c[i] = ch.charCodeAt(0) - 96;
+        fixed[i] = 1;
+      } else c[i] = ch.charCodeAt(0) - 64;
     }
   }
-  return { w, h, c };
+  return { w, h, c, fixed };
 }
 
 export function clone(st) {
-  return { w: st.w, h: st.h, c: Int8Array.from(st.c) };
+  return { w: st.w, h: st.h, c: Int8Array.from(st.c), fixed: st.fixed };
+}
+
+export function isFixed(st, r, c) {
+  if (r < 0 || c < 0 || r >= st.h || c >= st.w) return false;
+  return !!(st.fixed && st.fixed[r * st.w + c]);
 }
 
 export function at(st, r, c) {
@@ -51,6 +67,7 @@ export function colorsPresent(st) {
 export function moveFrom(st, r, c, d) {
   const col = at(st, r, c);
   if (col <= 0) return null;
+  if (isFixed(st, r, c)) return null;
   const [dr, dc] = DIRS[d];
   if (!dr && !dc) return null;
 
@@ -84,6 +101,7 @@ export function legalMoves(st) {
   for (let r = 0; r < st.h; r++) {
     for (let c = 0; c < st.w; c++) {
       if (st.c[r * st.w + c] <= 0) continue;
+      if (isFixed(st, r, c)) continue;
       for (const d of DIR_KEYS) {
         const m = moveFrom(st, r, c, d);
         if (m) out.push(m);
@@ -96,8 +114,16 @@ export function legalMoves(st) {
 export function applyMove(st, m) {
   const ns = clone(st);
   if (m.res === 'pop') {
-    ns.c[m.r * st.w + m.c] = 0;
-    ns.c[m.br * st.w + m.bc] = 0;
+    const ai = m.r * st.w + m.c;
+    const bi = m.br * st.w + m.bc;
+    ns.c[ai] = 0;
+    ns.c[bi] = 0;
+    // 锚块被撞掉后就不再是锚块；fixed 是共享的静态掩码，只有这一种情况需要复制
+    if (st.fixed && (st.fixed[ai] || st.fixed[bi])) {
+      ns.fixed = Uint8Array.from(st.fixed);
+      ns.fixed[ai] = 0;
+      ns.fixed[bi] = 0;
+    }
   } else {
     ns.c[m.r * st.w + m.c] = 0;
     ns.c[m.tr * st.w + m.tc] = st.c[m.r * st.w + m.c];

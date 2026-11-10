@@ -1,4 +1,4 @@
-import { COLORS } from './game.js';
+import { COLORS, isFixed } from './game.js';
 
 const PALETTE = [
   { base: '#ef4444', light: '#fb7185', dark: '#b91c1c' },
@@ -248,7 +248,7 @@ function drawEdgePattern(ctx, x, y, w, h, r, cell, colorIndex) {
 }
 
 function drawBlock(ctx, px, py, cell, colorIndex, opts = {}, t = BOARD_THEME.dark) {
-  const { scale = 1, alpha = 1, lift = 0, sx = 1, sy = 1 } = opts;
+  const { scale = 1, alpha = 1, lift = 0, sx = 1, sy = 1, fixed = false } = opts;
   const inset = cell * 0.075;
   const base = (cell - inset * 2) * scale;
   const sizeX = base * sx;
@@ -311,6 +311,46 @@ function drawBlock(ctx, px, py, cell, colorIndex, opts = {}, t = BOARD_THEME.dar
     drawEdgePattern(ctx, x, y, sizeX, sizeY, radius, cell, colorIndex);
   }
 
+  // 锚块：压暗一点点 + 正中的钉帽，和墙区分开
+  if (fixed) {
+    ctx.fillStyle = 'rgba(15,23,42,.14)';
+    roundRect(ctx, x, y, sizeX, sizeY, radius);
+    ctx.fill();
+    drawAnchorMark(ctx, x, y, sizeX, sizeY, cell, minSize);
+  }
+
+  ctx.restore();
+}
+
+/** 锚块正中的钉帽：深色圆盘 + 十字槽 + 高光，小尺寸下也能一眼认出“钉死了” */
+function drawAnchorMark(ctx, x, y, sizeX, sizeY, cell, minSize) {
+  const cx = x + sizeX / 2;
+  const cy = y + sizeY / 2;
+  const r = minSize * 0.2;
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(15,23,42,.62)';
+  ctx.fill();
+  ctx.lineWidth = Math.max(1, cell * 0.028);
+  ctx.strokeStyle = 'rgba(226,232,240,.65)';
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(226,232,240,.85)';
+  ctx.lineWidth = Math.max(1.2, cell * 0.04);
+  ctx.lineCap = 'round';
+  const k = r * 0.52;
+  ctx.beginPath();
+  ctx.moveTo(cx - k, cy);
+  ctx.lineTo(cx + k, cy);
+  ctx.moveTo(cx, cy - k);
+  ctx.lineTo(cx, cy + k);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(cx - r * 0.3, cy - r * 0.32, r * 0.24, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,255,.42)';
+  ctx.fill();
   ctx.restore();
 }
 
@@ -377,7 +417,7 @@ export function draw(ctx, layout, state, fx = {}) {
       const hitstop = anim.hitstop || 0;
       animP = easeOut(clamp01(travel ? (elapsed - hitstop) / travel : 1));
       // state 里两块都已消失，无需跳过
-    } else if (anim.kind === 'bounce') {
+    } else if (anim.kind === 'bounce' || anim.kind === 'shake') {
       skip.add(cellKey(anim.r, anim.c));
     } else if (anim.kind === 'rewind') {
       // 撤销时把「这一步」倒放：移动 = 幽灵块滑回原位；消除 = 两块在原位长回来
@@ -414,15 +454,9 @@ export function draw(ctx, layout, state, fx = {}) {
       const px = bx + c * cell;
       const py = by + r * cell;
       const isDragged = drag && drag.r === r && drag.c === c;
-      drawBlock(
-        ctx,
-        px,
-        py,
-        cell,
-        v,
-        isDragged ? { scale: 1.07, lift: 0.02 } : {},
-        t,
-      );
+      const opts = isDragged ? { scale: 1.07, lift: 0.02 } : {};
+      if (isFixed(state, r, c)) opts.fixed = true;
+      drawBlock(ctx, px, py, cell, v, opts, t);
     }
   }
 
@@ -626,7 +660,24 @@ export function draw(ctx, layout, state, fx = {}) {
       {
         sx: alongX ? 1 - squash : 1 + squash * 0.45,
         sy: alongX ? 1 + squash * 0.45 : 1 - squash,
+        fixed: isFixed(state, anim.r, anim.c),
       },
+      t,
+    );
+  }
+
+  // 锚块拖不动：原地抖一下，表示“被钉住”而不是“被挡住”
+  if (anim && anim.kind === 'shake') {
+    const p = clamp01((now - anim.t0) / anim.dur);
+    const k = Math.sin(p * Math.PI * 5) * (1 - p) * cell * 0.05;
+    const color = state.c[anim.r * w + anim.c];
+    drawBlock(
+      ctx,
+      bx + anim.c * cell + k,
+      by + anim.r * cell,
+      cell,
+      color,
+      { fixed: isFixed(state, anim.r, anim.c) },
       t,
     );
   }

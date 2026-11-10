@@ -8,27 +8,43 @@ export const DIRS = {
 };
 export const DIR_KEYS = ['U', 'D', 'L', 'R'];
 
-// rows: 数组，'#'=墙/虚空, '.'=空, 'A'..'E'=颜色
+// rows: 数组，'#'=墙/虚空, '.'=空, 'A'..'E'=颜色, 'a'..'e'=同色锚块（不可拖，可被同色撞掉）
 export function parse(rows) {
   const h = rows.length;
   const w = Math.max(...rows.map(r => r.length));
   const c = new Int8Array(w * h);
+  const fixed = new Uint8Array(w * h);
   for (let r = 0; r < h; r++) {
     for (let x = 0; x < w; x++) {
       const ch = rows[r][x] ?? '#';
-      c[r * w + x] = ch === '#' ? -1 : ch === '.' ? 0 : (ch.charCodeAt(0) - 64);
+      const i = r * w + x;
+      if (ch === '#') c[i] = -1;
+      else if (ch === '.') c[i] = 0;
+      else if (ch >= 'a' && ch <= 'e') {
+        c[i] = ch.charCodeAt(0) - 96;
+        fixed[i] = 1;
+      } else c[i] = ch.charCodeAt(0) - 64;
     }
   }
-  return { w, h, c };
+  return { w, h, c, fixed };
 }
 
 export function clone(st) {
-  return { w: st.w, h: st.h, c: Int8Array.from(st.c) };
+  return { w: st.w, h: st.h, c: Int8Array.from(st.c), fixed: st.fixed };
+}
+
+export function isFixed(st, r, x) {
+  if (r < 0 || x < 0 || r >= st.h || x >= st.w) return false;
+  return !!(st.fixed && st.fixed[r * st.w + x]);
 }
 
 export function key(st) {
   let s = '';
   for (let i = 0; i < st.c.length; i++) s += String.fromCharCode(st.c[i] + 33);
+  // 锚块位置必须进 key：锚块被撞掉后，同色普通块可以滑进原格，只看颜色会撞状态
+  if (st.fixed) {
+    for (let i = 0; i < st.fixed.length; i++) if (st.fixed[i]) s += `|${i}`;
+  }
   return s;
 }
 
@@ -54,8 +70,11 @@ export function toRows(st) {
   for (let r = 0; r < st.h; r++) {
     let line = '';
     for (let x = 0; x < st.w; x++) {
-      const v = st.c[r * st.w + x];
-      line += v === -1 ? '#' : v === 0 ? '.' : String.fromCharCode(64 + v);
+      const i = r * st.w + x;
+      const v = st.c[i];
+      line += v === -1 ? '#' : v === 0 ? '.' : isFixed(st, r, x)
+        ? String.fromCharCode(96 + v)
+        : String.fromCharCode(64 + v);
     }
     out.push(line);
   }
@@ -70,6 +89,7 @@ export function genA(st) {
     for (let x = 0; x < st.w; x++) {
       const col = st.c[r * st.w + x];
       if (col <= 0) continue;
+      if (isFixed(st, r, x)) continue;
       for (const d of DIR_KEYS) {
         const [dr, dx] = DIRS[d];
         let cr = r + dr, cx = x + dx, lr = r, lx = x;
@@ -93,8 +113,15 @@ export function genA(st) {
 export function applyA(st, m) {
   const ns = clone(st);
   if (m.res === 'pop') {
-    ns.c[m.r * st.w + m.c] = 0;
-    ns.c[m.br * st.w + m.bc] = 0;
+    const ai = m.r * st.w + m.c;
+    const bi = m.br * st.w + m.bc;
+    ns.c[ai] = 0;
+    ns.c[bi] = 0;
+    if (st.fixed && (st.fixed[ai] || st.fixed[bi])) {
+      ns.fixed = Uint8Array.from(st.fixed);
+      ns.fixed[ai] = 0;
+      ns.fixed[bi] = 0;
+    }
   } else {
     ns.c[m.r * st.w + m.c] = 0;
     ns.c[m.tr * st.w + m.tc] = st.c[m.r * st.w + m.c];
