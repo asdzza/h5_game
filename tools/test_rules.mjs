@@ -14,6 +14,14 @@ import { parse as rParse, genA, applyA, countBlocks as rCount } from '../researc
 import { LEVELS as RESEARCH_LEVELS } from '../research/levels_seed.mjs';
 import { aStar } from '../research/solver_fast.mjs';
 
+// 测试很重（A* 全量 50 关），没有输出会让人以为卡死。
+const TEST_T0 = Date.now();
+const progress = (msg) => {
+  const s = ((Date.now() - TEST_T0) / 1000).toFixed(1);
+  process.stdout.write(`[test ${s}s] ${msg}\n`);
+};
+progress('开始规则内核测试');
+
 const sig = (m) =>
   m.res === 'pop'
     ? `${m.r},${m.c},${m.d},pop,${m.br},${m.bc}`
@@ -1686,6 +1694,7 @@ const solveLevel = (lv) => (lv.id <= 8 ? solve(lv) : astarPar(lv));
 
   for (const cs of cases) {
     const lv = LEVELS[cs.id - 1];
+    progress(`S3/S4 第 ${cs.id} 关`);
     const st = parse(lv.rows);
     assert.equal(lv.id, cs.id);
     assert.equal(lv.goal, 'color');
@@ -1982,6 +1991,7 @@ const solveLevel = (lv) => (lv.id <= 8 ? solve(lv) : astarPar(lv));
 
   for (const cs of cases) {
     const lv = LEVELS.find((l) => l.id === cs.id);
+    progress(`S4 第 ${cs.id} 关`);
     const st = parse(lv.rows);
     assert.equal(lv.id, cs.id);
     assert.equal(lv.goal, cs.goal || 'clear', `第 ${cs.id} 关目标类型不对`);
@@ -2054,6 +2064,7 @@ const solveLevel = (lv) => (lv.id <= 8 ? solve(lv) : astarPar(lv));
   assert.equal(s5.length, 10, 'S5（41–50）应有 10 关');
   let tight = 0;
   for (const lv of s5) {
+    progress(`S5 第 ${lv.id} 关`);
     assert.equal(lv.stage, 5, `第 ${lv.id} 关应属于阶段 5`);
     const slack = lv.limit - lv.par;
     assert.ok(slack === 1 || slack === 2, `第 ${lv.id} 关容错应为 par+1 或 par+2，实际 ${slack}`);
@@ -2144,6 +2155,7 @@ function mulberry32(a) {
 
 let compared = 0;
 for (const lv of RESEARCH_LEVELS) {
+  progress(`逐状态对拍 #${lv.id}`);
   let a = parse(lv.rows);
   let b = rParse(lv.rows);
   assert.equal(countBlocks(a), rCount(b), `#${lv.id} 方块数不一致`);
@@ -2165,6 +2177,7 @@ for (const lv of RESEARCH_LEVELS) {
   }
 }
 
+progress('所有断言通过，输出汇总');
 console.log(
   `规则内核 OK：${LEVELS.length} 关 par = ${LEVELS.map((l) => l.par).join('/')}；` +
     `2/3/4 关最优首步唯一、第 5 关两条（先竖或先横）、第 6 关两条（先 C 或先 A）、第 7 关两条（先 B 或先 A）、第 8 关两条（先 C 借 A 停车或先 B 借墙停车）；` +

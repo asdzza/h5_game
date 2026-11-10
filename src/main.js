@@ -5,6 +5,7 @@ import {
   isGoal,
   moveDistance,
   legalMoves,
+  countBlocks,
   at,
   DIRS,
 } from './game.js';
@@ -29,6 +30,8 @@ const elWinSub = document.getElementById('win-sub');
 const elStars = document.getElementById('stars');
 const elFail = document.getElementById('fail');
 const elIntro = document.getElementById('intro');
+const elTitle = document.getElementById('title');
+const elTitleProgress = document.getElementById('title-progress');
 const elLevels = document.getElementById('levels');
 const elLevelGrid = document.getElementById('level-grid');
 const elLevelSummary = document.getElementById('level-summary');
@@ -36,6 +39,8 @@ const elSolution = document.getElementById('solution');
 const elSolutionTitle = document.getElementById('solution-title');
 const elSolutionNote = document.getElementById('solution-note');
 const elSolutionList = document.getElementById('solution-list');
+const btnTitleStart = document.getElementById('title-start');
+const btnTitleLevels = document.getElementById('title-levels');
 const btnIntroOk = document.getElementById('intro-ok');
 const btnHelp = document.getElementById('help');
 const btnSound = document.getElementById('sound');
@@ -54,10 +59,21 @@ const btnFailRestart = document.getElementById('fail-restart');
 
 const audio = createAudio();
 const INTRO_KEY = 'zgz.seenIntro.v2';
+const TITLE_KEY = 'zgz.seenTitle.v1';
 const SAVE_KEY = 'zgz.save.v2';
 const THEME_KEY = 'zgz.theme';
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
 const COLOR_NAMES = ['红', '蓝', '绿', '黄', '紫'];
+const HITSTOP = 60;
+const REDUCE_MOTION =
+  window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
+const STAGES = {
+  1: { title: '阶段 1 · 学会停住', blurb: '拖一下，看它停在哪' },
+  2: { title: '阶段 2 · 墙是刹车', blurb: '借墙和异色块搭出落点' },
+  3: { title: '阶段 3 · 只清目标色', blurb: '别的颜色是墙，也是工具' },
+  4: { title: '阶段 4 · 双刹车耦合', blurb: '一次停靠，同时给后面留路' },
+  5: { title: '阶段 5 · 终局精算', blurb: '容错只有一两步' },
+};
 const metaTheme = document.querySelector('meta[name="theme-color"]');
 
 // 首屏脚本已经把 data-theme 写进 <html>，这里只接管状态与按钮
@@ -74,6 +90,8 @@ function readSave() {
 
 const save = readSave();
 if (!save.best || typeof save.best !== 'object') save.best = {};
+if (!save.stars || typeof save.stars !== 'object') save.stars = {};
+if (!save.assisted || typeof save.assisted !== 'object') save.assisted = {};
 
 let levelIndex = Math.max(
   0,
@@ -91,6 +109,12 @@ let failed = false;
 let layout = computeLayout(320, 320, state.w, state.h);
 let hintTimer = 0;
 let pops = 0;
+let pendingUndo = false;
+let assistedThisRun = false;
+let solutionArmed = false;
+let solutionArmTimer = 0;
+let rafId = 0;
+let currentCell = null;
 
 function persist() {
   save.level = level.id;
@@ -113,9 +137,19 @@ function setHint(text, revertAfter = 0) {
   }
 }
 
+function baseHint() {
+  const cap = save.assisted[level.id] ? ' 本关用过辅助，最高 2★。' : '';
+  return `${level.teach}（${level.par} 步内 3★）${cap}`;
+}
+
 function updateHud() {
   elMoves.textContent = `${moves} / ${level.limit}`;
   elMoves.classList.toggle('warn', moves >= level.limit - 1);
+  elMoves.title = `已用 ${moves} 步 · 上限 ${level.limit} 步 · ${level.par} 步内得 3★`;
+  elMoves.setAttribute(
+    'aria-label',
+    `已用 ${moves} 步，上限 ${level.limit} 步，${level.par} 步内可得三星`,
+  );
 }
 
 function updateGoal() {
@@ -124,12 +158,12 @@ function updateGoal() {
     const color = PALETTE[level.targetColor - 1]?.base || '#ef4444';
     elGoal.classList.add('is-color');
     elGoal.style.setProperty('--goal-color', color);
-    elGoalText.textContent = `目标：只清${name}块`;
+    elGoalText.textContent = `只清${name}块`;
     elGoal.setAttribute('aria-label', `本关目标：只消除${name}色方块`);
   } else {
     elGoal.classList.remove('is-color');
     elGoal.style.removeProperty('--goal-color');
-    elGoalText.textContent = '目标：清空全场';
+    elGoalText.textContent = '清空全场';
     elGoal.setAttribute('aria-label', '本关目标：清空全场');
   }
 }
@@ -138,24 +172,52 @@ function updateUndo() {
   btnUndo.disabled = history.length === 0;
 }
 
+function countColor(st, color) {
+  let n = 0;
+  for (let i = 0; i < st.c.length; i++) if (st.c[i] === color) n++;
+  return n;
+}
+
+function markAssisted() {
+  assistedThisRun = true;
+  if (!save.assisted[level.id]) {
+    save.assisted[level.id] = true;
+    persist();
+  }
+}
+
 function showHint() {
   if (won || failed) return;
   audio.play('ui');
-  const name = COLOR_NAMES[level.targetColor - 1] || '目标';
-  const popsNow = legalMoves(state).filter((m) => m.res === 'pop').length;
-  const goalLine =
-    level.goal === 'color'
-      ? `本关只清${name}块；其他颜色即使能消，也先想一想是不是还要留着当刹车。`
-      : '本关要清空全场，先想清楚哪一对该留到后面。';
+  markAssisted();
+
+  const isColor = level.goal === 'color';
+  const target = level.targetColor;
+  const name = COLOR_NAMES[target - 1] || '目标';
+  const pairsLeft = isColor
+    ? Math.ceil(countColor(state, target) / 2)
+    : Math.ceil(countBlocks(state) / 2);
+  // 关键修复：目标色关卡只统计“目标色”的可消对，不能再把绿色也算进去
+  const popsNow = legalMoves(state).filter((m) => {
+    if (m.res !== 'pop') return false;
+    return !isColor || at(state, m.r, m.c) === target;
+  }).length;
+
+  const goalLine = isColor
+    ? `本关还要清 ${pairsLeft} 对${name}块`
+    : `场上还剩 ${pairsLeft} 对`;
   let tip;
   if (popsNow >= 2) {
-    tip = `现在有 ${popsNow} 对能直接消，先比较消掉哪一对会拆掉后面的停车位。`;
+    tip = `当前有 ${popsNow} 对${isColor ? name : ''}能直接消，先比较消掉哪一对。`;
   } else if (popsNow === 1) {
-    tip = '现在只有一对能直接消；先看它消掉后，剩下的同色块还能不能停到墙边或异色块旁边。';
+    tip = `当前有 1 对${isColor ? name : ''}能直接消。`;
+  } else if (isColor) {
+    tip = `当前没有${name}对能直接消，先借墙或异色块停到同伴旁边。`;
   } else {
-    tip = '现在没有现成的同色对；先借墙或异色块，把一个方块停到同伴旁边。';
+    tip = '当前没有现成的同色对，先借墙或异色块停到同伴旁边。';
   }
-  setHint(`${goalLine} ${tip}`, 9000);
+  const cost = save.assisted[level.id] ? '本关已用过辅助，最高 2★。' : '提示会把本关上限降到 2★。';
+  setHint(`${goalLine}；${tip}${cost}`, 11000);
 }
 
 function solutionSteps() {
@@ -167,10 +229,14 @@ function solutionSteps() {
 
 function openSolution() {
   if (!level.nudge) return;
+  markAssisted();
   elSolutionTitle.textContent = `第 ${level.id} 关 · ${level.name}`;
-  elSolutionNote.textContent = moves
-    ? '这份走法从开局起算；你已经走过步，建议先点「重开」再照着走。'
-    : '这份走法从开局起算，按顺序拖动即可。';
+  const cap = save.assisted[level.id] ? '本关已使用过辅助，最高 2★。' : '使用完整解法后，本关最高 2★。';
+  elSolutionNote.textContent = `${
+    moves
+      ? '这份走法从开局起算；你已经走过步，建议先点「重开」再照着走。'
+      : '这份走法从开局起算，按顺序拖动即可。'
+  }${cap}`;
   elSolutionList.replaceChildren(
     ...solutionSteps().map((text) => {
       const li = document.createElement('li');
@@ -179,11 +245,36 @@ function openSolution() {
     }),
   );
   elSolution.classList.remove('hidden');
+  btnSolutionClose.focus({ preventScroll: true });
   audio.play('ui');
+}
+
+function disarmSolution() {
+  solutionArmed = false;
+  clearTimeout(solutionArmTimer);
+  solutionArmTimer = 0;
+  btnSolution.textContent = '看解法';
+  btnSolution.classList.remove('armed');
 }
 
 function closeSolution() {
   elSolution.classList.add('hidden');
+}
+
+function requestSolution() {
+  if (won || failed || !level.nudge) return;
+  if (!solutionArmed) {
+    solutionArmed = true;
+    btnSolution.textContent = '确认看解法';
+    btnSolution.classList.add('armed');
+    setHint('完整解法会直接显示答案，使用后本关最高 2★。再点一次「确认看解法」继续。', 6000);
+    clearTimeout(solutionArmTimer);
+    solutionArmTimer = setTimeout(disarmSolution, 6000);
+    audio.play('ui');
+    return;
+  }
+  disarmSolution();
+  openSolution();
 }
 
 function renderStars(n) {
@@ -191,38 +282,63 @@ function renderStars(n) {
   spans.forEach((s, i) => s.classList.toggle('on', i < n));
 }
 
-function starsFor(lv, n) {
+// 2★ 线取“允许容错”的中段：par + max(1, round(slack/2))。
+// 这样 limit=par+2 的关卡终于能拿到 1★，同时不改变任何关卡数据。
+function twoStarLine(lv) {
+  return lv.par + Math.max(1, Math.round((lv.limit - lv.par) / 2));
+}
+
+function starsFor(lv, n, assisted = false) {
   if (n == null) return 0;
-  if (n <= lv.par) return 3;
-  if (n <= lv.par + 2) return 2;
-  return 1;
+  let stars = 3;
+  if (n > lv.par) stars = n <= twoStarLine(lv) ? 2 : 1;
+  if (assisted) stars = Math.min(stars, 2);
+  return stars;
+}
+
+function storedStars(lv) {
+  const saved = save.stars[lv.id];
+  if (typeof saved === 'number') return Math.min(3, Math.max(0, saved));
+  const best = save.best[lv.id];
+  if (best == null) return 0;
+  return starsFor(lv, best, !!save.assisted[lv.id]);
 }
 
 function showWin() {
   won = true;
   drag = null;
-  const stars = starsFor(level, moves);
+  const assisted = assistedThisRun || !!save.assisted[level.id];
+  const stars = starsFor(level, moves, assisted);
   renderStars(stars);
+
   const goalWord =
     level.goal === 'color'
       ? `清掉${COLOR_NAMES[level.targetColor - 1] || '目标'}块`
       : '清空';
-  elWinKicker.textContent = goalWord;
+  const nextLevel = LEVELS[levelIndex + 1];
+  const stageEnd = !nextLevel || nextLevel.stage !== level.stage;
+  const stage = STAGES[level.stage];
+  elWinKicker.textContent = stageEnd ? `阶段 ${level.stage} 完成` : goalWord;
   elWinText.textContent = `用 ${moves} 步${goalWord}`;
 
   const best = save.best[level.id];
   if (best == null || moves < best) save.best[level.id] = moves;
   const bestNow = save.best[level.id];
+  save.stars[level.id] = Math.max(save.stars[level.id] || 0, stars);
 
   const parLine =
     moves <= level.par
       ? `正好是 ${level.par} 步的最优解。`
       : `最少 ${level.par} 步，多用了 ${moves - level.par} 步。`;
-  elWinSub.textContent =
-    bestNow < moves ? `${parLine} 你的最好成绩：${bestNow} 步。` : parLine;
+  const lines = [parLine];
+  if (bestNow < moves) lines.push(`你的最好成绩：${bestNow} 步。`);
+  if (assisted) lines.push('本关用过提示/解法，最高 2★。');
+  if (stageEnd && stage) lines.push(`${stage.title} 完成——${stage.blurb}。`);
+  elWinSub.textContent = lines.join(' ');
 
   btnNext.textContent = levelIndex === LEVELS.length - 1 ? '选关' : '下一关';
   elWin.classList.remove('hidden');
+  btnNext.focus({ preventScroll: true });
   setHint(`还剩 ${Math.max(0, level.limit - moves)} 步，不过已经不需要了。`);
   audio.play('win');
   persist();
@@ -232,8 +348,44 @@ function showFail() {
   failed = true;
   drag = null;
   elFail.classList.remove('hidden');
+  btnFailUndo.focus({ preventScroll: true });
   setHint('步数用完了。撤销一步可以接着走，步数会退回来。');
   audio.play('fail');
+}
+
+function titleSeen() {
+  try {
+    return localStorage.getItem(TITLE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function updateTitleProgress() {
+  const total = LEVELS.reduce((sum, lv) => sum + storedStars(lv), 0);
+  const unlocked = LEVELS.filter((_, i) => isLevelUnlocked(i)).length;
+  elTitleProgress.textContent = `已获得 ${total} ★ · 已开放 ${unlocked} / ${LEVELS.length} 关`;
+  const hasProgress = levelIndex > 0 || save.best[level.id] != null;
+  btnTitleStart.textContent = hasProgress ? `继续第 ${level.id} 关` : '开始游戏';
+}
+
+function openTitle() {
+  updateTitleProgress();
+  elTitle.classList.remove('hidden');
+  btnTitleStart.focus({ preventScroll: true });
+}
+
+function closeTitle({ showIntro = false } = {}) {
+  elTitle.classList.add('hidden');
+  try {
+    localStorage.setItem(TITLE_KEY, '1');
+    // 标题页已经讲了规则，首次进入不再叠一层玩法弹窗
+    localStorage.setItem(INTRO_KEY, '1');
+  } catch {
+    /* ignore */
+  }
+  audio.play('ui');
+  if (showIntro) openIntro();
 }
 
 function introSeen() {
@@ -269,21 +421,51 @@ function isLevelUnlocked(index) {
   return !!prev && save.best[prev.id] != null;
 }
 
+function scrollCurrentIntoView() {
+  if (!currentCell) return;
+  const grid = elLevelGrid;
+  const gr = grid.getBoundingClientRect();
+  const cr = currentCell.getBoundingClientRect();
+  const target = grid.scrollTop + (cr.top - gr.top) - (gr.height - cr.height) / 2;
+  grid.scrollTop = Math.max(0, target);
+}
+
 function renderLevelGrid() {
   elLevelGrid.textContent = '';
+  currentCell = null;
   let total = 0;
+  let unlockedCount = 0;
+  let lastStage = 0;
+
   for (let i = 1; i <= TOTAL_LEVELS; i++) {
     const lv = LEVELS[i - 1];
+
+    // 用数据里现成的 stage 把 50 个数字变成 5 个阶段
+    if (lv && lv.stage !== lastStage) {
+      lastStage = lv.stage;
+      const meta = STAGES[lv.stage] || { title: `阶段 ${lv.stage}`, blurb: '' };
+      const head = document.createElement('div');
+      head.className = 'stage-head';
+      const title = document.createElement('strong');
+      title.textContent = meta.title;
+      const blurb = document.createElement('span');
+      blurb.textContent = meta.blurb;
+      head.append(title, blurb);
+      elLevelGrid.appendChild(head);
+    }
+
     const best = lv ? save.best[lv.id] : undefined;
-    const stars = lv ? starsFor(lv, best) : 0;
+    const stars = lv ? storedStars(lv) : 0;
     if (lv) total += stars;
     const unlocked = !!lv && isLevelUnlocked(i - 1);
+    if (unlocked) unlockedCount++;
     const isCurrent = !!lv && lv.id === level.id;
 
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = `level-cell${unlocked ? '' : ' locked'}${isCurrent ? ' current' : ''}`;
     btn.disabled = !unlocked;
+    if (isCurrent) currentCell = btn;
     if (lv) {
       const stateText =
         best != null ? `最好 ${best} 步，${stars} 星` : '未通关';
@@ -321,6 +503,14 @@ function renderLevelGrid() {
         starRow.appendChild(star);
       }
       btn.appendChild(starRow);
+
+      // 关卡名：玩家靠名字回忆“那关有个大缺口”
+      if (lv) {
+        const name = document.createElement('span');
+        name.className = 'lname';
+        name.textContent = lv.name;
+        btn.appendChild(name);
+      }
       btn.addEventListener('click', () => selectLevel(i - 1));
     }
 
@@ -330,12 +520,17 @@ function renderLevelGrid() {
   const b = document.createElement('b');
   b.textContent = String(total);
   elLevelSummary.textContent = '';
-  elLevelSummary.append('已获得 ', b, ` 颗星 · 已开放 ${LEVELS.length} / ${TOTAL_LEVELS} 关`);
+  elLevelSummary.append(
+    '已获得 ',
+    b,
+    ` 颗星 · 已开放 ${unlockedCount} / ${TOTAL_LEVELS} 关`,
+  );
 }
 
 function openLevels() {
   renderLevelGrid();
   elLevels.classList.remove('hidden');
+  requestAnimationFrame(scrollCurrentIntoView);
   btnLevelsClose.focus({ preventScroll: true });
 }
 
@@ -376,6 +571,7 @@ function syncTheme({ persist = false, sound = false } = {}) {
     }
   }
   if (sound) audio.play('ui');
+  requestDraw();
 }
 
 function toggleTheme() {
@@ -391,6 +587,7 @@ function resize() {
   canvas.height = Math.floor(cssH * DPR);
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   layout = computeLayout(cssW, cssH, state.w, state.h);
+  requestDraw();
 }
 
 function cancelAnim() {
@@ -406,22 +603,31 @@ function loadLevel(index) {
   moves = 0;
   history = [];
   pops = 0;
+  pendingUndo = false;
+  assistedThisRun = false;
   cancelAnim();
+  disarmSolution();
   drag = null;
   won = false;
   failed = false;
   elWin.classList.add('hidden');
   elFail.classList.add('hidden');
   elLevels.classList.add('hidden');
+  elTitle.classList.add('hidden');
   closeSolution();
   elLevel.textContent = `第 ${level.id} 关`;
   elName.textContent = level.name;
   updateGoal();
   document.title = `${level.name} · 撞个正着`;
-  setHint(level.teach);
+  setHint(baseHint());
   updateHud();
   updateUndo();
   btnSolution.disabled = !level.nudge;
+  btnSolution.title = level.nudge
+    ? '查看完整解法（使用后本关最高 2★）'
+    : '本关暂无完整解法';
+  btnHint.title = '提示（使用后本关最高 2★）';
+  btnHint.setAttribute('aria-label', '提示，使用后本关最高两星');
   resize();
   persist();
 }
@@ -457,8 +663,7 @@ function commit({ r, c, dir }) {
   if (m.res === 'pop') pops++;
   updateHud();
   updateUndo();
-  setHint(level.teach);
-  audio.play(m.res === 'pop' ? 'pop' : 'slide');
+  setHint(baseHint());
 
   const dist = moveDistance(m);
   if (m.res === 'pop') {
@@ -469,16 +674,36 @@ function commit({ r, c, dir }) {
       before,
       color,
       t0: performance.now(),
+      hitstop: HITSTOP,
       travel,
-      dur: travel + 200,
+      dur: HITSTOP + travel + 216,
     });
+    audio.play('pop');
+    if (!REDUCE_MOTION) {
+      try {
+        navigator.vibrate?.(15);
+      } catch {
+        /* 某些浏览器不支持 */
+      }
+    }
   } else {
+    const [dr, dc] = DIRS[dir];
+    const hit = at(before, m.tr + dr, m.tc + dc);
+    const impact = hit > 0 ? 'block' : 'wall';
+    const travelDur = Math.min(260, Math.max(90, dist * 55));
     playAnim({
       kind: 'slide',
       m,
       before,
+      impact,
       t0: performance.now(),
-      dur: Math.min(260, Math.max(90, dist * 55)),
+      travelDur,
+      dur: travelDur + 150,
+    });
+    audio.play('slide');
+    // 落地时再给一声：撞墙闷、撞异色脆
+    audio.play(impact === 'block' ? 'landBlock' : 'landWall', {
+      delay: travelDur / 1000,
     });
   }
 }
@@ -491,6 +716,13 @@ function playAnim(next) {
   animTimer = setTimeout(() => {
     animTimer = 0;
     anim = null;
+    if (pendingUndo) {
+      pendingUndo = false;
+      requestDraw();
+      if (!won && history.length) undo();
+      return;
+    }
+    requestDraw();
     if (won || failed) return;
     if (isGoal(state, level)) {
       showWin();
@@ -501,7 +733,15 @@ function playAnim(next) {
 }
 
 function undo() {
-  if (won || anim || !history.length) return;
+  if (won) return;
+  if (!history.length) return;
+  // 动画期间点撤销：排队，等这一步演完立刻执行，绝不静默吞掉
+  if (anim) {
+    pendingUndo = true;
+    setHint('撤销已排队，这一步结束后立即执行。', 1200);
+    return;
+  }
+  pendingUndo = false;
   const prev = history.pop();
   state = prev.state;
   moves = prev.moves;
@@ -510,15 +750,29 @@ function undo() {
     failed = false;
     elFail.classList.add('hidden');
   }
-  setHint(level.teach);
+  setHint(baseHint());
   updateHud();
   updateUndo();
   audio.play('ui');
+  requestDraw();
+}
+
+function requestDraw() {
+  if (rafId) return;
+  rafId = requestAnimationFrame(tick);
 }
 
 function tick(now) {
-  draw(ctx, layout, state, { drag, anim, now, theme });
-  requestAnimationFrame(tick);
+  rafId = 0;
+  draw(ctx, layout, state, {
+    drag,
+    anim,
+    now,
+    theme,
+    reduceMotion: REDUCE_MOTION,
+  });
+  // 空闲时停止重绘：只有动画/拖拽期间才继续要下一帧
+  if (anim || drag) requestDraw();
 }
 
 attachInput(canvas, {
@@ -527,19 +781,22 @@ attachInput(canvas, {
   isBlocked: () => !!anim || won || failed,
   onDrag: (d) => {
     drag = d;
+    requestDraw();
   },
   onCancel: () => {
     drag = null;
+    requestDraw();
   },
   onCommit: (g) => {
     drag = null;
     commit(g);
+    requestDraw();
   },
 });
 
 btnUndo.addEventListener('click', undo);
 btnHint.addEventListener('click', showHint);
-btnSolution.addEventListener('click', openSolution);
+btnSolution.addEventListener('click', requestSolution);
 btnSolutionClose.addEventListener('click', closeSolution);
 elSolution.addEventListener('click', (e) => {
   if (e.target === elSolution) closeSolution();
@@ -575,8 +832,17 @@ btnSound.addEventListener('click', () => {
   if (!audio.isMuted()) audio.play('ui');
 });
 btnTheme.addEventListener('click', toggleTheme);
+btnTitleStart.addEventListener('click', () => closeTitle());
+btnTitleLevels.addEventListener('click', () => {
+  closeTitle();
+  openLevels();
+});
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
+  if (!elTitle.classList.contains('hidden')) {
+    closeTitle();
+    return;
+  }
   if (!elSolution.classList.contains('hidden')) {
     closeSolution();
     return;
@@ -593,70 +859,95 @@ window.addEventListener('pointerdown', () => audio.unlock(), { once: true });
 syncSound();
 syncTheme();
 loadLevel(levelIndex);
-if (!introSeen()) openIntro();
+if (!titleSeen()) openTitle();
+else if (!introSeen()) openIntro();
 
 const ro = new ResizeObserver(resize);
 ro.observe(stage);
 window.addEventListener('orientationchange', () => setTimeout(resize, 120));
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) requestDraw();
+});
 
 resize();
-requestAnimationFrame(tick);
+requestDraw();
 
-// 开发期调试钩子（不影响玩法；正式提交前可移除）
-window.__zgz = {
-  get level() {
-    return level;
-  },
-  get levelIndex() {
-    return levelIndex;
-  },
-  levels: LEVELS,
-  get state() {
-    return state;
-  },
-  get layout() {
-    return layout;
-  },
-  get moves() {
-    return moves;
-  },
-  get history() {
-    return history;
-  },
-  get won() {
-    return won;
-  },
-  get failed() {
-    return failed;
-  },
-  get anim() {
-    return anim;
-  },
-  get theme() {
-    return theme;
-  },
-  toggleTheme,
-  setTheme(next) {
-    theme = next === 'light' ? 'light' : 'dark';
-    syncTheme({ persist: true });
-  },
-  commit,
-  undo,
-  loadLevel,
-  resize,
-  reset() {
-    loadLevel(levelIndex);
-  },
-  audio,
-  openIntro,
-  closeIntro,
-  openLevels,
-  closeLevels,
-  renderLevelGrid,
-  isLevelUnlocked,
-  save,
-  // 手动渲染一帧：用于不可见窗口（rAF 被冻结）时截图/取色排查
-  redraw(now = performance.now()) {
-    draw(ctx, layout, state, { drag, anim, now, theme });
-  },
-};
+// 只在本地开发环境暴露调试钩子；生产（GitHub Pages）完全不定义
+const isLocalHost =
+  ['localhost', '127.0.0.1', '::1', '[::1]'].includes(location.hostname) ||
+  location.protocol === 'file:';
+if (isLocalHost) {
+  window.__zgz = {
+    get level() {
+      return level;
+    },
+    get levelIndex() {
+      return levelIndex;
+    },
+    levels: LEVELS,
+    get state() {
+      return state;
+    },
+    get layout() {
+      return layout;
+    },
+    get moves() {
+      return moves;
+    },
+    get history() {
+      return history;
+    },
+    get won() {
+      return won;
+    },
+    get failed() {
+      return failed;
+    },
+    get anim() {
+      return anim;
+    },
+    get drag() {
+      return drag;
+    },
+    get pendingUndo() {
+      return pendingUndo;
+    },
+    get assistedThisRun() {
+      return assistedThisRun;
+    },
+    get theme() {
+      return theme;
+    },
+    starsFor,
+    twoStarLine,
+    storedStars,
+    showHint,
+    requestSolution,
+    toggleTheme,
+    setTheme(next) {
+      theme = next === 'light' ? 'light' : 'dark';
+      syncTheme({ persist: true });
+    },
+    commit,
+    undo,
+    loadLevel,
+    resize,
+    reset() {
+      loadLevel(levelIndex);
+    },
+    audio,
+    openIntro,
+    closeIntro,
+    openTitle,
+    closeTitle,
+    openLevels,
+    closeLevels,
+    renderLevelGrid,
+    isLevelUnlocked,
+    save,
+    // 手动渲染一帧：用于不可见窗口（rAF 被冻结）时截图/取色排查
+    redraw(now = performance.now()) {
+      draw(ctx, layout, state, { drag, anim, now, theme, reduceMotion: REDUCE_MOTION });
+    },
+  };
+}

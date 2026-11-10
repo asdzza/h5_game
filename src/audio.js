@@ -59,6 +59,15 @@ export function createAudio() {
     slide() {
       tone(520, 0.1, { type: 'triangle', gain: 0.05, to: 300 });
     },
+    // 停靠：撞墙更闷，撞异色更脆，让“停住”也有回应
+    landWall(opts = {}) {
+      tone(150, 0.1, { type: 'sine', gain: 0.05, to: 96, delay: opts.delay || 0 });
+    },
+    landBlock(opts = {}) {
+      const d = opts.delay || 0;
+      tone(330, 0.075, { type: 'triangle', gain: 0.045, to: 220, delay: d });
+      tone(660, 0.05, { type: 'sine', gain: 0.022, delay: d + 0.01 });
+    },
     pop() {
       tone(620, 0.09, { type: 'triangle', gain: 0.07 });
       tone(940, 0.13, { type: 'sine', gain: 0.05, delay: 0.045 });
@@ -81,9 +90,9 @@ export function createAudio() {
   };
 
   return {
-    play(name) {
+    play(name, opts) {
       const fn = SFX[name];
-      if (fn) fn();
+      if (fn) fn(opts);
     },
     unlock() {
       ensure();
