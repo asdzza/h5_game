@@ -340,29 +340,16 @@ body {
   cursor: default;
 }
 
-.solution-btn {
+/* 提示阶梯进入第 2 层后，按钮变成琥珀色，表示「再点会更贵」 */
+.action-btn.escalated {
   color: var(--solution-text);
   background: var(--solution-bg);
   border-color: var(--solution-line);
 }
 
-.solution-btn:hover:not(:disabled) {
+.action-btn.escalated:hover:not(:disabled) {
   background: var(--solution-bg-hover);
   border-color: var(--solution-line-hover);
-}
-
-.solution-btn.armed {
-  animation: armed-pulse 0.9s ease-in-out infinite;
-}
-
-@keyframes armed-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.15);
-  }
-  50% {
-    box-shadow: 0 0 0 4px rgba(251, 191, 36, 0.22);
-  }
 }
 
 .overlay {

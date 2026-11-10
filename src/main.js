@@ -49,7 +49,6 @@ const btnLevels = document.getElementById('levels-btn');
 const btnLevelsClose = document.getElementById('levels-close');
 const btnUndo = document.getElementById('undo');
 const btnHint = document.getElementById('hint-btn');
-const btnSolution = document.getElementById('solution-btn');
 const btnSolutionClose = document.getElementById('solution-close');
 const btnRestart = document.getElementById('restart');
 const btnNext = document.getElementById('next');
@@ -91,7 +90,14 @@ function readSave() {
 const save = readSave();
 if (!save.best || typeof save.best !== 'object') save.best = {};
 if (!save.stars || typeof save.stars !== 'object') save.stars = {};
-if (!save.assisted || typeof save.assisted !== 'object') save.assisted = {};
+if (!save.hintPenalty || typeof save.hintPenalty !== 'object') save.hintPenalty = {};
+// 旧存档：assisted 只是「用过辅助」，按扣 1★ 迁移
+if (save.assisted && typeof save.assisted === 'object') {
+  for (const id of Object.keys(save.assisted)) {
+    if (save.assisted[id] && !save.hintPenalty[id]) save.hintPenalty[id] = 1;
+  }
+  delete save.assisted;
+}
 
 let levelIndex = Math.max(
   0,
@@ -110,9 +116,8 @@ let layout = computeLayout(320, 320, state.w, state.h);
 let hintTimer = 0;
 let pops = 0;
 let pendingUndo = false;
-let assistedThisRun = false;
-let solutionArmed = false;
-let solutionArmTimer = 0;
+// 本次尝试已经点到第几层提示（0 没点过 / 1 小提示 / 2 下一步 / 3 完整解法）
+let hintStep = 0;
 let rafId = 0;
 let currentCell = null;
 
@@ -132,14 +137,14 @@ function setHint(text, revertAfter = 0) {
   if (revertAfter) {
     hintTimer = setTimeout(() => {
       hintTimer = 0;
-      elHint.textContent = level.teach;
+      elHint.textContent = baseHint();
     }, revertAfter);
   }
 }
 
 function baseHint() {
-  const cap = save.assisted[level.id] ? ' 本关用过辅助，最高 2★。' : '';
-  return `${level.teach}（${level.par} 步内 3★）${cap}`;
+  const pen = penaltyLine();
+  return `${level.teach}（${level.par} 步内 3★）${pen ? ` ${pen}` : ''}`;
 }
 
 function updateHud() {
@@ -178,19 +183,51 @@ function countColor(st, color) {
   return n;
 }
 
-function markAssisted() {
-  assistedThisRun = true;
-  if (!save.assisted[level.id]) {
-    save.assisted[level.id] = true;
-    persist();
+// ---- 提示阶梯 ----
+// 第 1 次：只给方向性的小提示，免费。
+// 第 2 次：给出「下一步」，扣 1★。
+// 第 3 次：打开完整解法，再扣 1★。
+// 扣分按关卡永久累计（最多 2★），但阶梯位置每次重开都会回到第 1 层，
+// 已经付过的分数不会重复扣。
+function hintPenalty(id) {
+  const p = save.hintPenalty[id];
+  return typeof p === 'number' ? Math.min(2, Math.max(0, p)) : 0;
+}
+
+function addHintPenalty(n) {
+  const cur = hintPenalty(level.id);
+  const next = Math.min(2, cur + n);
+  if (next === cur) return;
+  save.hintPenalty[level.id] = next;
+  persist();
+}
+
+function penaltyLine() {
+  const p = hintPenalty(level.id);
+  if (!p) return '';
+  return `本关已用提示扣 ${p}★，最高 ${3 - p}★。`;
+}
+
+// 阶梯按钮：文案与配色都跟着层级走，玩家能看出「再点一次会更贵」
+function updateHintButton() {
+  const p = hintPenalty(level.id);
+  const labels = ['提示', '再看提示', '看解法'];
+  const paid = p ? `（本关已扣 ${p}★）` : '';
+  btnHint.textContent = labels[Math.min(hintStep, 2)];
+  btnHint.classList.toggle('escalated', hintStep >= 1 || p > 0);
+  if (hintStep === 0) {
+    btnHint.title = `提示：第一次只给方向性的小提示，不扣星${paid}`;
+    btnHint.setAttribute('aria-label', `提示，第一次不扣星${paid}`);
+  } else if (hintStep === 1) {
+    btnHint.title = `再看提示：会指出下一步怎么走，扣 1 星${paid}`;
+    btnHint.setAttribute('aria-label', `再看提示，会指出下一步，扣一星${paid}`);
+  } else {
+    btnHint.title = `看解法：完整走法，再扣 1 星${paid}`;
+    btnHint.setAttribute('aria-label', `看完整解法，再扣一星${paid}`);
   }
 }
 
-function showHint() {
-  if (won || failed) return;
-  audio.play('ui');
-  markAssisted();
-
+function hintOverview() {
   const isColor = level.goal === 'color';
   const target = level.targetColor;
   const name = COLOR_NAMES[target - 1] || '目标';
@@ -204,20 +241,40 @@ function showHint() {
   }).length;
 
   const goalLine = isColor
-    ? `本关还要清 ${pairsLeft} 对${name}块`
+    ? `还要清 ${pairsLeft} 对${name}块`
     : `场上还剩 ${pairsLeft} 对`;
   let tip;
   if (popsNow >= 2) {
-    tip = `当前有 ${popsNow} 对${isColor ? name : ''}能直接消，先比较消掉哪一对。`;
+    tip = `现在有 ${popsNow} 对${isColor ? name : ''}能直接消——先想清楚消哪一对更不挡后面的路`;
   } else if (popsNow === 1) {
-    tip = `当前有 1 对${isColor ? name : ''}能直接消。`;
+    tip = `现在只有 1 对${isColor ? name : ''}能直接消——消它之前先看：剩下那块还停得下来吗`;
   } else if (isColor) {
-    tip = `当前没有${name}对能直接消，先借墙或异色块停到同伴旁边。`;
+    tip = `没有现成的${name}对——先找一个能「停住」的位置（墙、边界、异色块），把一块送到同伴旁边`;
   } else {
-    tip = '当前没有现成的同色对，先借墙或异色块停到同伴旁边。';
+    tip = '没有现成的同色对——先找一个能「停住」的位置（墙、边界、异色块），把一块送到同伴旁边';
   }
-  const cost = save.assisted[level.id] ? '本关已用过辅助，最高 2★。' : '提示会把本关上限降到 2★。';
-  setHint(`${goalLine}；${tip}${cost}`, 11000);
+  return `${goalLine}；${tip}。`;
+}
+
+// 第 1 层：只给方向，不给坐标
+function showHintTier1() {
+  setHint(`${hintOverview()}再点一次「再看提示」会指出下一步（扣 1★）。`, 12000);
+}
+
+// 第 2 层：给出下一步的具体走法（仍然只一步）
+function showHintTier2() {
+  const first = solutionSteps()[0];
+  const prefix = moves
+    ? `这份提示从开局起算，你已经走了 ${moves} 步，建议先「重开」再照做。`
+    : '';
+  if (!first) {
+    setHint(`${hintOverview()}${prefix}`, 12000);
+    return;
+  }
+  setHint(
+    `下一步：${first}。${prefix}再点一次「看解法」会列出完整走法（再扣 1★）。`,
+    14000,
+  );
 }
 
 function solutionSteps() {
@@ -229,14 +286,12 @@ function solutionSteps() {
 
 function openSolution() {
   if (!level.nudge) return;
-  markAssisted();
   elSolutionTitle.textContent = `第 ${level.id} 关 · ${level.name}`;
-  const cap = save.assisted[level.id] ? '本关已使用过辅助，最高 2★。' : '使用完整解法后，本关最高 2★。';
   elSolutionNote.textContent = `${
     moves
-      ? '这份走法从开局起算；你已经走过步，建议先点「重开」再照着走。'
+      ? `这份走法从开局起算；你已经走了 ${moves} 步，建议先点「重开」再照着走。`
       : '这份走法从开局起算，按顺序拖动即可。'
-  }${cap}`;
+  }${penaltyLine() || '这份走法是本关的完整答案。'}`;
   elSolutionList.replaceChildren(
     ...solutionSteps().map((text) => {
       const li = document.createElement('li');
@@ -249,32 +304,36 @@ function openSolution() {
   audio.play('ui');
 }
 
-function disarmSolution() {
-  solutionArmed = false;
-  clearTimeout(solutionArmTimer);
-  solutionArmTimer = 0;
-  btnSolution.textContent = '看解法';
-  btnSolution.classList.remove('armed');
-}
-
 function closeSolution() {
   elSolution.classList.add('hidden');
 }
 
-function requestSolution() {
-  if (won || failed || !level.nudge) return;
-  if (!solutionArmed) {
-    solutionArmed = true;
-    btnSolution.textContent = '确认看解法';
-    btnSolution.classList.add('armed');
-    setHint('完整解法会直接显示答案，使用后本关最高 2★。再点一次「确认看解法」继续。', 6000);
-    clearTimeout(solutionArmTimer);
-    solutionArmTimer = setTimeout(disarmSolution, 6000);
-    audio.play('ui');
-    return;
+function requestHint() {
+  if (won || failed) return;
+  const steps = solutionSteps();
+  audio.play('ui');
+  if (hintStep === 0) {
+    hintStep = 1;
+    showHintTier1();
+  } else if (hintStep === 1) {
+    // 数据里没有预置解法时退回第 1 层，绝不能白扣星
+    if (!steps.length) {
+      setHint(`${hintOverview()}本关没有预置解法，先按这个方向试。`, 12000);
+    } else {
+      hintStep = 2;
+      addHintPenalty(1);
+      showHintTier2();
+    }
+  } else if (!steps.length) {
+    setHint('本关没有预置解法，先按提示的方向自己试。', 8000);
+  } else if (hintStep === 2) {
+    hintStep = 3;
+    addHintPenalty(1);
+    openSolution();
+  } else {
+    openSolution();
   }
-  disarmSolution();
-  openSolution();
+  updateHintButton();
 }
 
 function renderStars(n) {
@@ -288,12 +347,11 @@ function twoStarLine(lv) {
   return lv.par + Math.max(1, Math.round((lv.limit - lv.par) / 2));
 }
 
-function starsFor(lv, n, assisted = false) {
+function starsFor(lv, n, penalty = 0) {
   if (n == null) return 0;
   let stars = 3;
   if (n > lv.par) stars = n <= twoStarLine(lv) ? 2 : 1;
-  if (assisted) stars = Math.min(stars, 2);
-  return stars;
+  return Math.max(1, stars - penalty);
 }
 
 function storedStars(lv) {
@@ -301,14 +359,14 @@ function storedStars(lv) {
   if (typeof saved === 'number') return Math.min(3, Math.max(0, saved));
   const best = save.best[lv.id];
   if (best == null) return 0;
-  return starsFor(lv, best, !!save.assisted[lv.id]);
+  return starsFor(lv, best, hintPenalty(lv.id));
 }
 
 function showWin() {
   won = true;
   drag = null;
-  const assisted = assistedThisRun || !!save.assisted[level.id];
-  const stars = starsFor(level, moves, assisted);
+  const penalty = hintPenalty(level.id);
+  const stars = starsFor(level, moves, penalty);
   renderStars(stars);
 
   const goalWord =
@@ -332,7 +390,7 @@ function showWin() {
       : `最少 ${level.par} 步，多用了 ${moves - level.par} 步。`;
   const lines = [parLine];
   if (bestNow < moves) lines.push(`你的最好成绩：${bestNow} 步。`);
-  if (assisted) lines.push('本关用过提示/解法，最高 2★。');
+  if (penalty > 0) lines.push(`本关用提示扣了 ${penalty}★，最高 ${3 - penalty}★。`);
   if (stageEnd && stage) lines.push(`${stage.title} 完成——${stage.blurb}。`);
   elWinSub.textContent = lines.join(' ');
 
@@ -604,9 +662,8 @@ function loadLevel(index) {
   history = [];
   pops = 0;
   pendingUndo = false;
-  assistedThisRun = false;
+  hintStep = 0;
   cancelAnim();
-  disarmSolution();
   drag = null;
   won = false;
   failed = false;
@@ -622,12 +679,7 @@ function loadLevel(index) {
   setHint(baseHint());
   updateHud();
   updateUndo();
-  btnSolution.disabled = !level.nudge;
-  btnSolution.title = level.nudge
-    ? '查看完整解法（使用后本关最高 2★）'
-    : '本关暂无完整解法';
-  btnHint.title = '提示（使用后本关最高 2★）';
-  btnHint.setAttribute('aria-label', '提示，使用后本关最高两星');
+  updateHintButton();
   resize();
   persist();
 }
@@ -795,8 +847,7 @@ attachInput(canvas, {
 });
 
 btnUndo.addEventListener('click', undo);
-btnHint.addEventListener('click', showHint);
-btnSolution.addEventListener('click', requestSolution);
+btnHint.addEventListener('click', requestHint);
 btnSolutionClose.addEventListener('click', closeSolution);
 elSolution.addEventListener('click', (e) => {
   if (e.target === elSolution) closeSolution();
@@ -912,8 +963,8 @@ if (isLocalHost) {
     get pendingUndo() {
       return pendingUndo;
     },
-    get assistedThisRun() {
-      return assistedThisRun;
+    get hintStep() {
+      return hintStep;
     },
     get theme() {
       return theme;
@@ -921,8 +972,8 @@ if (isLocalHost) {
     starsFor,
     twoStarLine,
     storedStars,
-    showHint,
-    requestSolution,
+    hintPenalty,
+    requestHint,
     toggleTheme,
     setTheme(next) {
       theme = next === 'light' ? 'light' : 'dark';

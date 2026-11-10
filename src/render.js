@@ -348,16 +348,18 @@ export function draw(ctx, layout, state, fx = {}) {
 
   ctx.clearRect(0, 0, cssW, cssH);
 
-  // 消除命中时的轻震（reduced-motion 下关闭）
+  // 消除命中时的轻微回弹（reduced-motion 下关闭）
+  // 幅度控制在 1–2px、只走一个衰减周期，避免整屏「晃」带来的晕眩感
   let shakeX = 0;
   let shakeY = 0;
   if (anim && anim.kind === 'pop' && !reduceMotion) {
     const elapsed = now - anim.t0;
     const impactAt = (anim.hitstop || 0) + (anim.travel || 0);
-    if (elapsed >= impactAt && elapsed < impactAt + 180) {
-      const p = 1 - (elapsed - impactAt) / 180;
-      shakeX = Math.sin(elapsed * 1.1) * cell * 0.08 * p;
-      shakeY = Math.cos(elapsed * 1.5) * cell * 0.06 * p;
+    if (elapsed >= impactAt && elapsed < impactAt + 130) {
+      const k = (elapsed - impactAt) / 130;
+      const amp = cell * 0.022 * (1 - k) * (1 - k);
+      shakeX = Math.sin(k * Math.PI * 2) * amp;
+      shakeY = Math.cos(k * Math.PI * 2) * amp * 0.7;
     }
   }
 
