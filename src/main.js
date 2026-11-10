@@ -10,6 +10,7 @@ import {
   DIRS,
 } from './game.js';
 import { LEVELS, TOTAL_LEVELS } from './levels.js';
+import { SOLUTIONS } from './solutions.js';
 import { computeLayout, draw, PALETTE } from './render.js';
 import { attachInput, attachKeyboard } from './input.js';
 import { createAudio } from './audio.js';
@@ -424,6 +425,9 @@ function countUpWinMoves(target, goalWord) {
 function showWin() {
   won = true;
   drag = null;
+  // 上一轮如果停在回放里，先把结算卡恢复成正常样子
+  stopReplay({ focusBack: false });
+  setWinChrome(true);
   const penalty = hintUsed;
   const stars = starsFor(level, moves, penalty);
   renderStars(stars);
@@ -479,6 +483,176 @@ function showFail() {
   btnFailUndo.focus({ preventScroll: true });
   setHint('步数用完了。撤销一步可以接着走，步数会退回来。');
   audio.play('fail');
+}
+
+// ---- 最优解回放（结算页内的小棋盘，独立于主棋盘：不碰步数 / 历史 / 存档 / 星级） ----
+// 走法由 research/gen_paths.mjs 生成、src/solutions.js 提供；test_rules 会逐关回放校验。
+const elReplay = document.getElementById('replay');
+const elReplayBoard = document.getElementById('replay-board');
+const elReplayStatus = document.getElementById('replay-status');
+const btnReplay = document.getElementById('replay-btn');
+const btnReplayStop = document.getElementById('replay-stop');
+const replayCtx = elReplayBoard.getContext('2d');
+const DIR_NAMES = { U: '上', D: '下', L: '左', R: '右' };
+
+const replay = { on: false, path: [], idx: 0, st: null, layout: null, anim: null, timer: 0, raf: 0 };
+
+function parseSolutionPath(str) {
+  if (!str) return [];
+  return str
+    .trim()
+    .split(/\s+/)
+    .map((tok) => {
+      const m = /^(\d+),(\d+)([UDLR])$/.exec(tok);
+      return m ? { r: Number(m[1]) - 1, c: Number(m[2]) - 1, d: m[3] } : null;
+    })
+    .filter(Boolean);
+}
+
+function setWinChrome(show) {
+  for (const el of [elStars, elWinText, elWinSub, btnNext, btnAgain, btnReplay]) {
+    if (el) el.hidden = !show;
+  }
+}
+
+function replayDraw(now) {
+  if (!replay.on || !replay.layout) return;
+  draw(replayCtx, replay.layout, replay.st, {
+    anim: replay.anim,
+    now,
+    theme,
+    reduceMotion: true,
+  });
+}
+
+function requestReplayDraw() {
+  if (!replay.on || replay.raf) return;
+  replay.raf = requestAnimationFrame(replayTick);
+}
+
+function replayTick(now) {
+  replay.raf = 0;
+  if (!replay.on) return;
+  if (replay.anim && now - replay.anim.t0 >= replay.anim.dur) replay.anim = null;
+  replayDraw(now);
+  if (replay.anim) requestReplayDraw();
+}
+
+function replayResize() {
+  if (!replay.on) return;
+  const rect = elReplayBoard.getBoundingClientRect();
+  const cssW = Math.max(1, Math.floor(rect.width));
+  const cssH = Math.max(1, Math.floor(rect.height));
+  if (cssW < 2 || cssH < 2) return; // 卡片还没显示出来，等下一帧或 resize 再来
+  elReplayBoard.width = Math.floor(cssW * DPR);
+  elReplayBoard.height = Math.floor(cssH * DPR);
+  replayCtx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  replay.layout = computeLayout(cssW, cssH, replay.st.w, replay.st.h);
+  replay.anim = null;
+  replayDraw(performance.now());
+}
+
+function startReplay() {
+  if (!won) return;
+  const path = parseSolutionPath(SOLUTIONS[level.id]);
+  if (!path.length) {
+    setHint('这一关暂时没有回放数据。', 2400);
+    return;
+  }
+  replay.path = path;
+  replay.idx = 0;
+  replay.st = parse(level.rows);
+  replay.on = true;
+  replay.anim = null;
+  // 结算卡让位给回放：星星、标题、按钮先收起来，避免卡片高度来回跳
+  setWinChrome(false);
+  elReplay.hidden = false;
+  elReplayStatus.textContent = `最优解 · 共 ${path.length} 步`;
+  btnReplayStop.textContent = '停止回放';
+  replayResize();
+  btnReplayStop.focus({ preventScroll: true });
+  announce(`开始回放最优解，共 ${path.length} 步。`);
+  audio.play('ui');
+  replay.timer = setTimeout(replayStep, 620);
+}
+
+function replayStep() {
+  replay.timer = 0;
+  if (!replay.on) return;
+  if (!replay.layout) replayResize();
+  if (replay.idx >= replay.path.length) {
+    replayDone();
+    return;
+  }
+  const mv = replay.path[replay.idx];
+  const before = replay.st;
+  const m = moveFrom(before, mv.r, mv.c, mv.d);
+  if (!m) {
+    replayDone('这一步在当前局面走不通，先看别的吧。');
+    return;
+  }
+  replay.st = applyMove(before, m);
+  replay.idx++;
+  const color = before.c[mv.r * before.w + mv.c];
+  const dist = moveDistance(m);
+  let wait;
+  if (m.res === 'pop') {
+    const travel = Math.min(160, Math.max(0, (dist - 1) * 55));
+    replay.anim = {
+      kind: 'pop',
+      m,
+      before,
+      color,
+      t0: performance.now(),
+      hitstop: 0,
+      travel,
+      dur: travel + 216,
+    };
+    wait = travel + 216;
+  } else {
+    const travelDur = Math.min(260, Math.max(90, dist * 55));
+    replay.anim = {
+      kind: 'slide',
+      m,
+      before,
+      impact: 'wall',
+      t0: performance.now(),
+      travelDur,
+      dur: travelDur + 120,
+    };
+    wait = travelDur + 120;
+  }
+  elReplayStatus.textContent =
+    m.res === 'pop'
+      ? `第 ${replay.idx}/${replay.path.length} 步 · ${COLOR_NAMES[color - 1]}块消掉一对`
+      : `第 ${replay.idx}/${replay.path.length} 步 · ${COLOR_NAMES[color - 1]}块向${DIR_NAMES[mv.d]}`;
+  requestReplayDraw();
+  replay.timer = setTimeout(replayStep, Math.max(560, wait + 220));
+}
+
+function replayDone(note) {
+  clearTimeout(replay.timer);
+  replay.timer = 0;
+  replay.anim = null;
+  requestReplayDraw();
+  elReplayStatus.textContent =
+    note || `回放结束：${replay.path.length} 步，正好是最少步数。`;
+  btnReplayStop.textContent = '回到结算';
+  announce(elReplayStatus.textContent);
+}
+
+function stopReplay({ focusBack = true } = {}) {
+  clearTimeout(replay.timer);
+  replay.timer = 0;
+  if (replay.raf) cancelAnimationFrame(replay.raf);
+  replay.raf = 0;
+  const wasOn = replay.on;
+  replay.on = false;
+  replay.anim = null;
+  elReplay.hidden = true;
+  btnReplayStop.textContent = '停止回放';
+  setWinChrome(true);
+  if (wasOn && focusBack) btnReplay.focus({ preventScroll: true });
 }
 
 // ---- 死局弱提示 ----
@@ -945,6 +1119,7 @@ function syncTheme({ persist = false, sound = false } = {}) {
   }
   if (sound) audio.play('ui');
   requestDraw();
+  if (replay.on) requestReplayDraw();
 }
 
 function toggleTheme() {
@@ -961,6 +1136,7 @@ function resize() {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   layout = computeLayout(cssW, cssH, state.w, state.h);
   requestDraw();
+  if (replay.on) replayResize();
 }
 
 function cancelAnim() {
@@ -983,6 +1159,7 @@ function loadLevel(index) {
   winCountTimer = 0;
   resetDeadCheck();
   cancelAnim();
+  stopReplay({ focusBack: false });
   drag = null;
   kbd = null;
   won = false;
@@ -1250,6 +1427,8 @@ btnAgain.addEventListener('click', () => {
   loadLevel(levelIndex);
   canvas.focus({ preventScroll: true });
 });
+btnReplay.addEventListener('click', startReplay);
+btnReplayStop.addEventListener('click', () => stopReplay());
 btnFailUndo.addEventListener('click', undo);
 btnFailRestart.addEventListener('click', () => {
   loadLevel(levelIndex);
@@ -1281,6 +1460,10 @@ btnTitleLevels.addEventListener('click', () => {
 });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
+  if (replay.on) {
+    stopReplay();
+    return;
+  }
   if (!elTitle.classList.contains('hidden')) {
     closeTitle();
     return;
@@ -1395,6 +1578,14 @@ if (isLocalHost) {
     renderLevelGrid,
     isLevelUnlocked,
     save,
+    get replay() {
+      return replay;
+    },
+    get solutions() {
+      return SOLUTIONS;
+    },
+    startReplay,
+    stopReplay,
     // 手动渲染一帧：用于不可见窗口（rAF 被冻结）时截图/取色排查
     redraw(now = performance.now()) {
       draw(ctx, layout, state, {
