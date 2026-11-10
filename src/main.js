@@ -62,12 +62,16 @@ const btnNext = document.getElementById('next');
 const btnAgain = document.getElementById('again');
 const btnFailUndo = document.getElementById('fail-undo');
 const btnFailRestart = document.getElementById('fail-restart');
+const btnZoomOut = document.getElementById('zoom-out');
+const btnZoomFit = document.getElementById('zoom-fit');
+const btnZoomIn = document.getElementById('zoom-in');
 
 const audio = createAudio();
 const INTRO_KEY = 'zgz.seenIntro.v2';
 const TITLE_KEY = 'zgz.seenTitle.v1';
 const SAVE_KEY = 'zgz.save.v2';
 const THEME_KEY = 'zgz.theme';
+const ZOOM_KEY = 'zgz.zoom.v1';
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
 const COLOR_NAMES = ['红', '蓝', '绿', '黄', '紫'];
 const HITSTOP = 60;
@@ -116,6 +120,15 @@ let drag = null;
 let won = false;
 let failed = false;
 let layout = computeLayout(320, 320, state.w, state.h);
+// 棋盘缩放：1 = 自适应（默认）。放大后棋盘会超出视口，用 pan 记住看哪一块。
+const ZOOM_MIN = 0.8;
+const ZOOM_MAX = 2;
+const ZOOM_STEPS = [0.8, 1, 1.15, 1.3, 1.5, 1.75, 2];
+let zoom = readZoom();
+let panX = 0;
+let panY = 0;
+let zoomSaveTimer = 0;
+let zoomHintShown = false;
 let hintTimer = 0;
 let winCountTimer = 0;
 let pops = 0;
@@ -1127,6 +1140,121 @@ function toggleTheme() {
   syncTheme({ persist: true, sound: true });
 }
 
+// ---- 棋盘缩放（1 = 自适应；放大后拖空白处平移） ----
+function readZoom() {
+  try {
+    const v = Number(localStorage.getItem(ZOOM_KEY));
+    if (Number.isFinite(v) && v >= ZOOM_MIN && v <= ZOOM_MAX) return v;
+  } catch {
+    /* 隐私模式 */
+  }
+  return 1;
+}
+
+// 在「自适应尺寸」基础上乘 zoom，并把平移量夹在合理范围：
+// 放大后无论怎么拖，至少有一半视口压着棋盘，不会把它拖丢。
+function computeBoardLayout(cssW, cssH) {
+  const base = computeLayout(cssW, cssH, state.w, state.h);
+  if (Math.abs(zoom - 1) < 0.001) {
+    panX = 0;
+    panY = 0;
+    return base;
+  }
+  const cell = Math.max(10, Math.round(base.cell * zoom));
+  const bw = cell * state.w;
+  const bh = cell * state.h;
+  const centerX = Math.round((cssW - bw) / 2);
+  const centerY = Math.round((cssH - bh) / 2);
+  let x = centerX;
+  let y = centerY;
+  if (bw > cssW) {
+    const keep = cssW * 0.5;
+    x = Math.min(cssW - keep, Math.max(keep - bw, centerX + Math.round(panX)));
+    panX = x - centerX;
+  } else {
+    panX = 0;
+  }
+  if (bh > cssH) {
+    const keep = cssH * 0.5;
+    y = Math.min(cssH - keep, Math.max(keep - bh, centerY + Math.round(panY)));
+    panY = y - centerY;
+  } else {
+    panY = 0;
+  }
+  return { x, y, cell, w: state.w, h: state.h, cssW, cssH };
+}
+
+function saveZoomSoon() {
+  clearTimeout(zoomSaveTimer);
+  zoomSaveTimer = setTimeout(() => {
+    zoomSaveTimer = 0;
+    try {
+      localStorage.setItem(ZOOM_KEY, String(Number(zoom.toFixed(3))));
+    } catch {
+      /* 隐私模式忽略 */
+    }
+  }, 260);
+}
+
+function updateZoomUi() {
+  const pct = Math.round(zoom * 100);
+  const atFit = Math.abs(zoom - 1) < 0.001;
+  btnZoomFit.textContent = `${pct}%`;
+  btnZoomFit.setAttribute(
+    'aria-label',
+    atFit
+      ? '当前棋盘是自适应大小'
+      : `当前棋盘缩放 ${pct}%，点一下恢复自适应大小`,
+  );
+  btnZoomFit.title = atFit ? '当前是自适应大小' : '恢复自适应大小';
+  btnZoomOut.disabled = zoom <= ZOOM_MIN + 0.001;
+  btnZoomIn.disabled = zoom >= ZOOM_MAX - 0.001;
+}
+
+// anchor 是画布坐标：缩放时让这个点下的棋盘内容尽量不动（滚轮/双指用）
+function applyZoom(next, anchor) {
+  const clamped = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next));
+  if (Math.abs(clamped - zoom) < 0.001) return false;
+  const cssW = layout.cssW || 320;
+  const cssH = layout.cssH || 320;
+  const base = computeLayout(cssW, cssH, state.w, state.h);
+  const ax = anchor ? anchor.x : cssW / 2;
+  const ay = anchor ? anchor.y : cssH / 2;
+  const oldCell = Math.max(1, layout.cell);
+  const u = (ax - layout.x) / oldCell;
+  const v = (ay - layout.y) / oldCell;
+  zoom = clamped;
+  const cell = Math.max(10, Math.round(base.cell * zoom));
+  panX = ax - u * cell - Math.round((cssW - cell * state.w) / 2);
+  panY = ay - v * cell - Math.round((cssH - cell * state.h) / 2);
+  layout = computeBoardLayout(cssW, cssH);
+  updateZoomUi();
+  saveZoomSoon();
+  requestDraw();
+  return true;
+}
+
+function stepZoom(delta) {
+  const next =
+    delta > 0
+      ? ZOOM_STEPS.find((z) => z > zoom + 0.001) ?? ZOOM_MAX
+      : [...ZOOM_STEPS].reverse().find((z) => z < zoom - 0.001) ?? ZOOM_MIN;
+  if (!applyZoom(next, null)) return;
+  audio.play('ui');
+  announce(`棋盘 ${Math.round(zoom * 100)}%`);
+  if (zoom > 1 && !zoomHintShown) {
+    zoomHintShown = true;
+    setHint('放大后，拖动棋盘空白处可以移动视野；点中间百分比回到自适应。', 2800);
+  }
+}
+
+function resetZoom() {
+  if (!applyZoom(1, null)) return;
+  audio.play('ui');
+  announce('棋盘已恢复自适应大小。');
+  setHint(baseHint());
+}
+
 function resize() {
   const rect = stage.getBoundingClientRect();
   const cssW = Math.max(1, Math.floor(rect.width));
@@ -1134,7 +1262,8 @@ function resize() {
   canvas.width = Math.floor(cssW * DPR);
   canvas.height = Math.floor(cssH * DPR);
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  layout = computeLayout(cssW, cssH, state.w, state.h);
+  layout = computeBoardLayout(cssW, cssH);
+  updateZoomUi();
   requestDraw();
   if (replay.on) replayResize();
 }
@@ -1162,6 +1291,8 @@ function loadLevel(index) {
   stopReplay({ focusBack: false });
   drag = null;
   kbd = null;
+  panX = 0;
+  panY = 0;
   won = false;
   failed = false;
   elWin.classList.add('hidden');
@@ -1376,6 +1507,117 @@ attachInput(canvas, {
   },
 });
 
+// ---- 缩放手势：滚轮 / 双指捏合 / 拖空白处平移（拖方块仍走 attachInput） ----
+const gesture = { pts: new Map(), pan: null, pinch: null };
+
+function pointCell(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  const c = Math.floor((clientX - rect.left - layout.x) / layout.cell);
+  const r = Math.floor((clientY - rect.top - layout.y) / layout.cell);
+  if (r < 0 || c < 0 || r >= state.h || c >= state.w) return null;
+  return { r, c };
+}
+
+canvas.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  const hit = pointCell(e.clientX, e.clientY);
+  const onBlock = !!hit && state.c[hit.r * state.w + hit.c] > 0;
+  gesture.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (gesture.pts.size === 1) {
+    if (onBlock) return; // 方块上的按下交给拖块逻辑
+    gesture.pan = { x0: e.clientX, y0: e.clientY, baseX: panX, baseY: panY, moved: false };
+  } else if (gesture.pts.size === 2) {
+    gesture.pan = null;
+    const [a, b] = [...gesture.pts.values()];
+    gesture.pinch = {
+      dist: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+      zoom,
+    };
+  } else {
+    return;
+  }
+  // 抓住指针：拖到画布外再松手也能收到 pointerup，不会留下「幽灵手指」
+  try {
+    canvas.setPointerCapture(e.pointerId);
+  } catch {
+    /* 合成事件没有真实指针，忽略 */
+  }
+});
+
+canvas.addEventListener('pointermove', (e) => {
+  const p = gesture.pts.get(e.pointerId);
+  if (!p) return;
+  p.x = e.clientX;
+  p.y = e.clientY;
+  if (gesture.pinch && gesture.pts.size === 2) {
+    const [a, b] = [...gesture.pts.values()];
+    const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+    const rect = canvas.getBoundingClientRect();
+    applyZoom(gesture.pinch.zoom * (dist / gesture.pinch.dist), {
+      x: (a.x + b.x) / 2 - rect.left,
+      y: (a.y + b.y) / 2 - rect.top,
+    });
+    return;
+  }
+  if (!gesture.pan) return;
+  const dx = e.clientX - gesture.pan.x0;
+  const dy = e.clientY - gesture.pan.y0;
+  if (!gesture.pan.moved && Math.hypot(dx, dy) < 6) return;
+  gesture.pan.moved = true;
+  panX = gesture.pan.baseX + dx;
+  panY = gesture.pan.baseY + dy;
+  layout = computeBoardLayout(layout.cssW, layout.cssH);
+  requestDraw();
+});
+
+function endGesture(e) {
+  const wasZooming = !!gesture.pinch;
+  const wasPanning = !!gesture.pan;
+  gesture.pts.delete(e.pointerId);
+  if (gesture.pts.size < 2) gesture.pinch = null;
+  if (gesture.pts.size === 0) {
+    gesture.pan = null;
+    if (wasZooming || wasPanning) saveZoomSoon();
+  }
+}
+// 监听 window：手指/鼠标在画布外松开也能收到，避免留下过期的指针
+window.addEventListener('pointerup', endGesture);
+window.addEventListener('pointercancel', endGesture);
+window.addEventListener('blur', () => {
+  gesture.pts.clear();
+  gesture.pan = null;
+  gesture.pinch = null;
+});
+
+canvas.addEventListener(
+  'wheel',
+  (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+    applyZoom(zoom * Math.exp(-d * 0.0016), {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    });
+  },
+  { passive: false },
+);
+
+// 键盘缩放：+ / - / 0（方向键仍由 attachKeyboard 处理）
+canvas.addEventListener('keydown', (e) => {
+  if (e.altKey || e.ctrlKey || e.metaKey) return;
+  if (e.key === '+' || e.key === '=') {
+    e.preventDefault();
+    stepZoom(1);
+  } else if (e.key === '-' || e.key === '_') {
+    e.preventDefault();
+    stepZoom(-1);
+  } else if (e.key === '0') {
+    e.preventDefault();
+    resetZoom();
+  }
+});
+
 // 键盘操作：方向键选块、空格拿起、拿起后方向键直接走、Esc 放下
 attachKeyboard(canvas, {
   getState: () => state,
@@ -1429,6 +1671,9 @@ btnAgain.addEventListener('click', () => {
 });
 btnReplay.addEventListener('click', startReplay);
 btnReplayStop.addEventListener('click', () => stopReplay());
+btnZoomOut.addEventListener('click', () => stepZoom(-1));
+btnZoomIn.addEventListener('click', () => stepZoom(1));
+btnZoomFit.addEventListener('click', resetZoom);
 btnFailUndo.addEventListener('click', undo);
 btnFailRestart.addEventListener('click', () => {
   loadLevel(levelIndex);
@@ -1586,6 +1831,14 @@ if (isLocalHost) {
     },
     startReplay,
     stopReplay,
+    get zoom() {
+      return zoom;
+    },
+    get pan() {
+      return { x: panX, y: panY };
+    },
+    stepZoom,
+    resetZoom,
     // 手动渲染一帧：用于不可见窗口（rAF 被冻结）时截图/取色排查
     redraw(now = performance.now()) {
       draw(ctx, layout, state, {

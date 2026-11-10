@@ -58,13 +58,19 @@
         ></canvas>
         <p id="board-help" class="sr-only">
           键盘操作：方向键在方块之间移动选择，空格或回车拿起方块，拿起后按方向键把方块滑出去，Esc
-          放下。也可以用鼠标或手指直接拖动方块。
+          放下。也可以用鼠标或手指直接拖动方块。加减号缩放棋盘，0 恢复自适应。
         </p>
         <div id="sr-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
       </main>
 
       <footer id="bottom">
         <p id="hint">按住方块拖动，它会一直滑到撞上东西为止。</p>
+        <div id="zoom" class="zoom" role="group" aria-label="棋盘大小">
+          <span class="zoom-label" aria-hidden="true">棋盘</span>
+          <button id="zoom-out" class="zoom-btn" type="button" aria-label="缩小棋盘">−</button>
+          <button id="zoom-fit" class="zoom-value" type="button" title="恢复自适应大小">100%</button>
+          <button id="zoom-in" class="zoom-btn" type="button" aria-label="放大棋盘">+</button>
+        </div>
         <div id="actions">
           <button id="hint-btn" class="action-btn" type="button">提示</button>
           <button id="undo" class="action-btn" type="button" disabled>撤销</button>
@@ -99,6 +105,7 @@
           <li>松手后它会一直滑，直到撞上墙、边界或别的方块。</li>
           <li>撞上<b>同色</b>方块，两块一起消失。</li>
           <li>步数有限，用完还没清空就失败；点「撤销」会把步数退回来。</li>
+          <li>看不清就用底部的「− 100% +」缩放棋盘；放大后拖动空白处可以移动视野。</li>
           <li>键盘也能玩：Tab 把焦点移到棋盘，方向键选块，空格拿起，再按方向键滑出去，Esc 放下。</li>
         </ul>
         <p class="card-note">异色方块不会被推动，它们既是路障，也是下一对。</p>

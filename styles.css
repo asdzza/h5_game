@@ -408,6 +408,70 @@ body {
   border-color: var(--warn-line);
 }
 
+/* 棋盘缩放：一行小控件，不占棋盘本身的面积 */
+.zoom {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin: 0 auto;
+}
+
+.zoom-label {
+  margin-right: 1px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.zoom-btn,
+.zoom-value {
+  position: relative;
+  height: 30px;
+  min-width: 30px;
+  padding: 0 9px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+
+/* 视觉上 30px，热区上下扩到 44px，手指更好按 */
+.zoom-btn::before,
+.zoom-value::before {
+  content: '';
+  position: absolute;
+  inset: -7px 0;
+}
+
+.zoom-value {
+  min-width: 56px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.zoom-btn:hover:not(:disabled),
+.zoom-value:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+.zoom-btn:active:not(:disabled),
+.zoom-value:active {
+  transform: translateY(1px);
+}
+
+.zoom-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 #actions {
   display: flex;
   gap: 10px;
