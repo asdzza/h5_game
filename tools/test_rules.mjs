@@ -2127,8 +2127,8 @@ for (const lv of LEVELS) {
 
   // 方块只有颜色、没有字母：教学与提示文案不能出现 A–E 这种颜色代号
   assert.ok(
-    !/[A-E]/.test(`${lv.teach}${lv.nudge}`),
-    `第 ${lv.id} 关的 teach/nudge 不能出现颜色代号 A–E，应写成"红/蓝/绿/黄/紫"`,
+    !/[A-E]/.test(`${lv.teach}${lv.nudge}${lv.caution || ''}`),
+    `第 ${lv.id} 关的 teach/nudge/caution 不能出现颜色代号 A–E，应写成"红/蓝/绿/黄/紫"`,
   );
 
   const st0 = parse(lv.rows);
@@ -2141,6 +2141,27 @@ for (const lv of LEVELS) {
     for (const v of st0.c) if (v === lv.targetColor) target++;
     assert.ok(target >= 2 && target % 2 === 0, `第 ${lv.id} 关目标色必须成对`);
   }
+}
+
+// ---- 5b. 挑战关标记：只给 S5 里「保持 par 的首步 ≤6 且 par ≥9」的四关 ----
+// 它只做进关前的预期管理（一句 caution + 选关页小旗），不改任何 par / limit。
+const challengeIds = LEVELS.filter((lv) => lv.challenge).map((lv) => lv.id);
+assert.deepEqual(
+  challengeIds,
+  [42, 47, 48, 50],
+  `挑战关应恰好是 42/47/48/50，实际 ${challengeIds.join('/')}`,
+);
+for (const lv of LEVELS) {
+  if (!lv.challenge) {
+    assert.equal(lv.caution, undefined, `第 ${lv.id} 关未标挑战关，不应有 caution`);
+    continue;
+  }
+  assert.equal(lv.stage, 5, `第 ${lv.id} 关标了挑战关，应属于 S5`);
+  assert.ok(lv.par >= 9, `第 ${lv.id} 关标了挑战关，par 应 ≥9`);
+  assert.ok(
+    typeof lv.caution === 'string' && lv.caution.length >= 10 && lv.caution.length <= 40,
+    `第 ${lv.id} 关的 caution 应是 10–40 字的一句话，实际 ${lv.caution}`,
+  );
 }
 
 // ---- 6. 与 research 引擎逐状态对拍（13 关 × 120 步固定随机游走） ----

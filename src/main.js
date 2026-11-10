@@ -19,6 +19,7 @@ const ctx = canvas.getContext('2d');
 const elSrStatus = document.getElementById('sr-status');
 const stage = document.getElementById('stage');
 const elLevel = document.getElementById('level-label');
+const elLevelTag = document.getElementById('level-tag');
 const elName = document.getElementById('level-name');
 const elGoal = document.getElementById('goal');
 const elGoalText = document.getElementById('goal-text');
@@ -198,7 +199,7 @@ function updateBoardA11y() {
   const countsText = parts.length ? parts.join('，') : '场上没有方块';
   canvas.setAttribute(
     'aria-label',
-    `第 ${level.id} 关 ${level.name}。目标${goal}。场上${countsText}。已用 ${moves} 步，上限 ${level.limit} 步，${level.par} 步内三星。方向键选块，空格拿起。`,
+    `第 ${level.id} 关 ${level.name}${level.challenge ? '，挑战关' : ''}。目标${goal}。场上${countsText}。已用 ${moves} 步，上限 ${level.limit} 步，${level.par} 步内三星。方向键选块，空格拿起。`,
   );
 }
 
@@ -823,18 +824,21 @@ function renderLevelGrid() {
 
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = `level-cell${unlocked ? '' : ' locked'}${isCurrent ? ' current' : ''}`;
+    btn.className = `level-cell${unlocked ? '' : ' locked'}${isCurrent ? ' current' : ''}${
+      lv && lv.challenge ? ' is-challenge' : ''
+    }`;
     btn.disabled = !unlocked;
     if (isCurrent) currentCell = btn;
     if (lv) {
       const stateText =
         best != null ? `最好 ${best} 步，${stars} 星` : '未通关';
+      const tagText = lv.challenge ? '，挑战关' : '';
       btn.setAttribute(
         'aria-label',
-        `第 ${lv.id} 关 ${lv.name}，${stateText}${unlocked ? '' : '，未解锁'}`,
+        `第 ${lv.id} 关 ${lv.name}，${stateText}${tagText}${unlocked ? '' : '，未解锁'}`,
       );
       btn.title = unlocked
-        ? `第 ${lv.id} 关 · ${lv.name}`
+        ? `第 ${lv.id} 关 · ${lv.name}${tagText}`
         : `第 ${lv.id} 关 · 未解锁`;
     } else {
       btn.setAttribute('aria-label', `第 ${i} 关，开发中`);
@@ -845,6 +849,14 @@ function renderLevelGrid() {
     num.className = 'num';
     num.textContent = String(i);
     btn.appendChild(num);
+
+    if (lv && lv.challenge) {
+      const flag = document.createElement('span');
+      flag.className = 'chal';
+      flag.textContent = '⚑';
+      flag.setAttribute('aria-hidden', 'true');
+      btn.appendChild(flag);
+    }
 
     if (!unlocked) {
       const lock = document.createElement('span');
@@ -982,9 +994,15 @@ function loadLevel(index) {
   closeSolution({ restoreFocus: false });
   elLevel.textContent = `第 ${level.id} 关`;
   elName.textContent = level.name;
+  if (elLevelTag) elLevelTag.hidden = !level.challenge;
   updateGoal();
-  document.title = `${level.name} · 撞个正着`;
-  setHint(baseHint());
+  document.title = `${level.challenge ? '⚑ ' : ''}${level.name} · 撞个正着`;
+  // 挑战关进关先播一句“会更费脑”，6.5 秒后回到本关的 teach；普通关直接显示 teach
+  setHint(
+    level.challenge && level.caution ? `⚑ 挑战关 · ${level.caution}` : baseHint(),
+    level.challenge ? 6500 : 0,
+  );
+  if (level.challenge && level.caution) announce(`挑战关。${level.caution}`);
   updateHud();
   updateUndo();
   updateHintButton();
