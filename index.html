@@ -114,7 +114,13 @@
         </div>
         <h2 id="win-text">用 2 步清空</h2>
         <p id="win-sub">最少就是 2 步，漂亮。</p>
+        <div id="replay" class="replay" hidden>
+          <canvas id="replay-board" class="replay-board" aria-hidden="true"></canvas>
+          <p id="replay-status" class="replay-status" role="status" aria-live="polite"></p>
+          <button id="replay-stop" class="ghost" type="button">停止回放</button>
+        </div>
         <button id="next" type="button">下一关</button>
+        <button id="replay-btn" class="ghost" type="button">看最优解回放</button>
         <button id="again" class="ghost" type="button">再玩一次</button>
       </div>
     </div>

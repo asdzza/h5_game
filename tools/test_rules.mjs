@@ -10,6 +10,7 @@ import {
   at,
 } from '../src/game.js';
 import { LEVELS } from '../src/levels.js';
+import { SOLUTIONS } from '../src/solutions.js';
 import { parse as rParse, genA, applyA, countBlocks as rCount } from '../research/engine.mjs';
 import { LEVELS as RESEARCH_LEVELS } from '../research/levels_seed.mjs';
 import { aStar } from '../research/solver_fast.mjs';
@@ -2162,6 +2163,39 @@ for (const lv of LEVELS) {
     typeof lv.caution === 'string' && lv.caution.length >= 10 && lv.caution.length <= 40,
     `第 ${lv.id} 关的 caution 应是 10–40 字的一句话，实际 ${lv.caution}`,
   );
+}
+
+// ---- 5c. 最优解回放数据：每关都有走法，且严格按 par 步通关 ----
+const solutionIds = Object.keys(SOLUTIONS)
+  .map(Number)
+  .sort((a, b) => a - b);
+assert.deepEqual(
+  solutionIds,
+  LEVELS.map((lv) => lv.id),
+  `SOLUTIONS 应覆盖全部 ${LEVELS.length} 关，实际 ${solutionIds.length} 关`,
+);
+for (const lv of LEVELS) {
+  const tokens = String(SOLUTIONS[lv.id] || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  assert.equal(
+    tokens.length,
+    lv.par,
+    `第 ${lv.id} 关回放应是 ${lv.par} 步，实际 ${tokens.length}`,
+  );
+  let st = parse(lv.rows);
+  tokens.forEach((tok, i) => {
+    const m = /^(\d+),(\d+)([UDLR])$/.exec(tok);
+    assert.ok(m, `第 ${lv.id} 关第 ${i + 1} 步格式不对：${tok}`);
+    const mv = moveFrom(st, Number(m[1]) - 1, Number(m[2]) - 1, m[3]);
+    assert.ok(mv, `第 ${lv.id} 关第 ${i + 1} 步（${tok}）在当前局面走不动`);
+    st = applyMove(st, mv);
+    if (i + 1 < tokens.length) {
+      assert.ok(!isGoal(st, lv), `第 ${lv.id} 关第 ${i + 1} 步就通关了，与 par 不符`);
+    }
+  });
+  assert.ok(isGoal(st, lv), `第 ${lv.id} 关回放结束没有通关`);
 }
 
 // ---- 6. 与 research 引擎逐状态对拍（13 关 × 120 步固定随机游走） ----

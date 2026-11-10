@@ -85,6 +85,11 @@ body {
   margin: 0;
 }
 
+/* 用 hidden 属性统一隐藏：卡片里的 flex 元素不会被 CSS display 抢先显示 */
+[hidden] {
+  display: none !important;
+}
+
 body {
   background:
     radial-gradient(1100px 700px at 50% -10%, var(--bg-glow-a) 0%, transparent 60%),
@@ -522,6 +527,8 @@ body {
 #next,
 #fail-undo,
 #solution-close,
+#replay-btn,
+#replay-stop,
 #title-start {
   font: inherit;
   font-size: 15px;
@@ -540,6 +547,8 @@ body {
 #next:active,
 #fail-undo:active,
 #solution-close:active,
+#replay-btn:active,
+#replay-stop:active,
 #title-start:active {
   transform: translateY(1px);
 }
@@ -565,6 +574,33 @@ body {
 .stars span.on {
   color: #fbbf24;
   text-shadow: 0 0 14px rgba(251, 191, 36, 0.55);
+}
+
+/* 结算页的最优解回放：卡片里放一块独立的小棋盘 */
+.replay {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 2px;
+}
+
+.replay-board {
+  width: min(236px, 60vw);
+  aspect-ratio: 1;
+  border-radius: 16px;
+}
+
+.replay-status {
+  margin: 0 !important;
+  min-height: 1.5em;
+  font-size: 12.5px !important;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.replay .ghost {
+  margin-top: 0;
 }
 
 /* 选关页 */
