@@ -62,7 +62,15 @@ export function attachInput(canvas, api) {
     else api.onCancel();
   };
 
+  // 记录按下的手指数：第二根手指落下说明是缩放 / 平移手势，立刻取消拖块
+  const pointers = new Set();
+
   canvas.addEventListener('pointerdown', (e) => {
+    pointers.add(e.pointerId);
+    if (pointers.size > 1) {
+      if (drag) finish(false);
+      return;
+    }
     if (api.isBlocked() || drag) return;
     const hit = cellAt(e.clientX, e.clientY);
     if (!hit) return;
@@ -92,6 +100,7 @@ export function attachInput(canvas, api) {
   });
 
   canvas.addEventListener('pointerup', (e) => {
+    pointers.delete(e.pointerId);
     if (!drag || e.pointerId !== drag.id) return;
     e.preventDefault();
     // 即使没有收到 pointermove，也要按“离起点的距离”判断是否取消
@@ -100,12 +109,20 @@ export function attachInput(canvas, api) {
   });
 
   canvas.addEventListener('pointercancel', (e) => {
+    pointers.delete(e.pointerId);
     if (!drag || e.pointerId !== drag.id) return;
     finish(false);
   });
 
   // 拖出画布时取消，避免“松手在别处”误触
-  window.addEventListener('blur', () => finish(false));
+  window.addEventListener('blur', () => {
+    pointers.clear();
+    finish(false);
+  });
+
+  // 在画布外松手也要清掉指针记录，否则下一次单指会被误判成多指
+  window.addEventListener('pointerup', (e) => pointers.delete(e.pointerId));
+  window.addEventListener('pointercancel', (e) => pointers.delete(e.pointerId));
 }
 
 const KEY_DIR = {
