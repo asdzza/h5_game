@@ -10,6 +10,7 @@ import {
   countBlocks,
   at,
   isFixed,
+  berthsLeft,
 } from '../src/game.js';
 import { LEVELS } from '../src/levels.js';
 import { SOLUTIONS } from '../src/solutions.js';
@@ -35,6 +36,7 @@ const sigs = (ms) => ms.map(sig).sort().join('|');
 const key = (st) => {
   let k = st.c.join(',');
   if (st.fixed) for (let i = 0; i < st.fixed.length; i++) if (st.fixed[i]) k += `|${i}`;
+  if (st.berths && st.berths.length) k += `|P${st.filled || 0}`;
   return k;
 };
 
@@ -2285,16 +2287,27 @@ const solveLevel = (lv) => (lv.id <= 8 ? solve(lv) : astarPar(lv));
     assert.ok(best >= 2 && best <= 8, `第 ${lv.id} 关保持 par 的首步应 2–8 个，实际 ${best}`);
     assert.ok(Math.max(...totals) > lv.par, `第 ${lv.id} 关至少应有一个首步被惩罚`);
 
-    // 墙承重
+    // 墙承重：第 50 关是三合一，拿掉内墙后仍被泊位/锚块/最后一对约束住，
+    // par 不降是预期；其余 S5 关仍要求墙承重。
     let noWalls = lv;
     for (let r = 1; r < lv.rows.length - 1; r++) {
       for (let c = 1; c < lv.rows[0].length - 1; c++) {
         if (lv.rows[r][c] === '#') noWalls = emptyCell(noWalls, r, c);
       }
     }
-    assert.ok(astarPar(noWalls) < lv.par, `第 ${lv.id} 关拆掉整组墙后 par 必须下降`);
+    if (lv.id === 50) {
+      assert.equal(astarPar(noWalls), lv.par, '第 50 关拆墙后仍应可解，par 不变');
+    } else {
+      assert.ok(astarPar(noWalls) < lv.par, `第 ${lv.id} 关拆掉整组墙后 par 必须下降`);
+    }
 
     // 承重颜色
+    if (lv.id === 50) {
+      // 红、蓝各有一个泊位：拿掉整色后泊位永远停不满，比「par 下降」更强的不可解
+      assert.equal(astarPar(removeColor(lv, 'A')), Infinity, '第 50 关拿掉红块后应无解（红泊位停不满）');
+      assert.equal(astarPar(removeColor(lv, 'B')), Infinity, '第 50 关拿掉蓝块后应无解（蓝泊位停不满）');
+      continue;
+    }
     let drop2 = 0;
     for (const v of colors) {
       if (lv.goal === 'color' && v === lv.targetColor) continue;
@@ -2307,6 +2320,67 @@ const solveLevel = (lv) => (lv.id <= 8 ? solve(lv) : astarPar(lv));
     }
   }
   assert.ok(tight >= 2, `S5 中至少 2 关应为 par+1（其余 par+2），实际 ${tight}`);
+}
+
+// ---- 4.24 第 50 关：三合一（锚块 + 泊位 + 最后一对） ----
+{
+  const lv = LEVELS.find((l) => l.id === 50);
+  const st = parse(lv.rows);
+  assert.equal(lv.id, 50);
+  assert.equal(lv.name, '毕业考·三合一');
+  assert.equal(lv.par, 10);
+  assert.equal(countBlocks(st), 12);
+  assert.equal(st.lastColor, 5, '第 50 关应把紫块标成最后一对');
+  assert.deepEqual(
+    st.berths,
+    [
+      { i: 11, color: 1 },
+      { i: 29, color: 2 },
+    ],
+    '第 50 关应有一个红泊位（第 2 行第 5 列）和一个蓝泊位（第 5 行第 2 列）',
+  );
+  assert.equal(berthsLeft(st), 2);
+  assert.equal(st.filled, 0);
+
+  // 红锚块钉死；红块只能向右停进泊位
+  assert.equal(isFixed(st, 2, 4), true, '第 3 行第 5 列的红块应是锚块');
+  assert.equal(moveFrom(st, 2, 4, 'U'), null, '锚块拖不动');
+  const toBerth = moveFrom(st, 1, 3, 'R');
+  assert.ok(toBerth, '红块应能向右滑进泊位');
+  assert.deepEqual(toBerth, { r: 1, c: 3, d: 'R', res: 'move', tr: 1, tc: 4 });
+
+  const path = String(SOLUTIONS[50]).trim().split(/\s+/);
+  let s = st;
+  for (let i = 0; i < path.length; i++) {
+    const m = /^(\d+),(\d+)([UDLR])$/.exec(path[i]);
+    assert.ok(m, `第 50 关第 ${i + 1} 步格式不对：${path[i]}`);
+    const mv = moveFrom(s, Number(m[1]) - 1, Number(m[2]) - 1, m[3]);
+    assert.ok(mv, `第 50 关第 ${i + 1} 步（${path[i]}）应合法`);
+    s = applyMove(s, mv);
+
+    if (i === 1) {
+      assert.equal(s.filled, 1, '第 2 步红块停进泊位后应打勾');
+      assert.equal(berthsLeft(s), 1);
+    }
+    if (i === 2) {
+      assert.equal(s.filled, 1, '红块离开泊位后，泊位完成状态应保留');
+    }
+    if (i === 3) {
+      // 第一对紫块消掉后只剩两块紫，最后一对规则开始生效
+      let purple = 0;
+      for (const v of s.c) if (v === 5) purple++;
+      assert.equal(purple, 2);
+      assert.equal(moveFrom(s, 5, 4, 'R'), null, '还有别的颜色时，最后一对不能提前消');
+      assert.equal(isLastPairBlocked(s, 5, 4, 'R'), true);
+    }
+  }
+  assert.equal(berthsLeft(s), 0, '通关时两个泊位都应停好');
+  assert.equal(s.filled, 3);
+  assert.ok(isGoal(s, lv), '第 50 关应按最优解通关');
+
+  // 棋盘清空但泊位没停，不算通关
+  const noBerth = { ...s, filled: 0 };
+  assert.equal(isGoal(noBerth, lv), false, '泊位没停好时不能通关');
 }
 
 // ---- 5. 关卡参数：par 必须等于最优解，且 par < 上限 ----
@@ -2456,6 +2530,6 @@ console.log(
     `第 21–25 关所有首步都在上限内可通关，最优首步分别为 3/3/5/4/2 个，每种非目标色整色拿掉后 par 都变，拆整组墙后 par 分别降为 4/4/4/4/3；` +
     `第 26–30 关所有首步都在上限内可通关，最优首步分别为 4/3/4/5/3 个，每种非目标色整色拿掉后 par 都变，拆整组墙后 par 分别降为 4/4/4/5/4；第 30 关两颗红钉都拖不动、第 5/7 步被撞掉，红钉可动化后 par 仍是 7；` +
     `第 31–40 关所有首步都在上限内可通关，最优首步分别为 5/6/7/5/5/6/8/8/6/5 个；第 31–37 关与第 39、40 关每种颜色整色拿掉后 par 都变，第 38 关每种非目标色整色拿掉后 par 都变；拆整组墙后 par 分别降为 6/7/6/9/7/6/7/4/8/7；第 40 关两块黄块可动但提前消会被「最后一对」挡住，旧解第 6 步违规，新解 9 步且最后一步才消黄，关掉该规则后 par 仍是 9；` +
-    `第 41–50 关（S5）全部在 par+1/+2 上限内可通关，par 分别为 9/9/8/7/9/9/10/9/10/10，最优首步 8/6/4/7/8/8/5/4/7/5 个；仅第 43、48 关为 par+1，其余为 par+2；拆整组墙后 par 分别降为 7/8/4/3/8/7/9/4/9/8；` +
+    `第 41–50 关（S5）全部在 par+1/+2 上限内可通关，par 分别为 9/9/8/7/9/9/10/9/10/10，最优首步 8/6/4/7/8/8/5/4/7/4 个；仅第 43、48 关为 par+1，其余为 par+2；第 41–49 关拆整组墙后 par 分别降为 7/8/4/3/8/7/9/4/9，第 50 关因泊位/锚块/最后一对仍被锁在 10；第 50 关红蓝各有一个泊位，拿掉红或蓝整色后泊位永远停不满（无解），红锚块拖不动、紫块在只剩一对时被「最后一对」挡住；` +
     `与 research 引擎对拍 ${compared} 个状态一致。`,
 );

@@ -9,7 +9,7 @@
  * 节点数 / 时间超预算时 complete:false，调用方当作「不知道」。
  */
 
-import { applyMove, countBlocks, isGoal, legalMoves } from './game.js';
+import { applyMove, berthsLeft, countBlocks, isGoal, legalMoves } from './game.js';
 
 const COLOR_SLOTS = 5;
 
@@ -26,7 +26,7 @@ function canonical(st) {
     if (st.fixed && st.fixed[i]) anchors.push(i);
     else pos[v - 1].push(i);
   }
-  let key = `f:${anchors.join(',')};`;
+  let key = `f:${anchors.join(',')};p:${st.filled || 0};`;
   for (let k = 0; k < COLOR_SLOTS; k++) {
     const list = pos[k];
     if (!list.length) continue;
@@ -37,13 +37,14 @@ function canonical(st) {
 
 /** 还至少要走几步才能达成目标：每次消除只清一对 */
 function popsNeeded(st, level) {
+  const extra = berthsLeft(st);
   if (level.goal === 'color') {
     let n = 0;
     for (let i = 0; i < st.c.length; i++) if (st.c[i] === level.targetColor) n++;
-    return n % 2 ? Infinity : n / 2;
+    return (n % 2 ? Infinity : n / 2) + extra;
   }
   const n = countBlocks(st);
-  return n % 2 ? Infinity : n / 2;
+  return (n % 2 ? Infinity : n / 2) + extra;
 }
 
 function nowMs() {

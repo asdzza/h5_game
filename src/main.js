@@ -9,6 +9,7 @@ import {
   countBlocks,
   at,
   isFixed,
+  berthsLeft,
   DIRS,
 } from './game.js';
 import { LEVELS, TOTAL_LEVELS } from './levels.js';
@@ -74,6 +75,12 @@ const TITLE_KEY = 'zgz.seenTitle.v1';
 const SAVE_KEY = 'zgz.save.v2';
 const THEME_KEY = 'zgz.theme';
 const ZOOM_KEY = 'zgz.zoom.v1';
+// 本地开发 / 预览环境默认全关解锁，方便逐关测试；?locked=1 可切回真实的逐关解锁流程
+const isLocalHost =
+  ['localhost', '127.0.0.1', '::1', '[::1]'].includes(location.hostname) ||
+  location.protocol === 'file:';
+const DEV_UNLOCK =
+  isLocalHost && !new URLSearchParams(location.search).has('locked');
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
 const COLOR_NAMES = ['红', '蓝', '绿', '黄', '紫'];
 const HITSTOP = 60;
@@ -219,25 +226,46 @@ function updateBoardA11y() {
   const lastText = state.lastColor
     ? `，${COLOR_NAMES[state.lastColor - 1]}块是最后一对，必须等别的颜色都清完才能消`
     : '';
+  const openBerths = (state.berths || [])
+    .map((b, k) => ({ ...b, done: !!((state.filled || 0) & (1 << k)) }))
+    .filter((b) => !b.done);
+  const berthText = state.berths && state.berths.length
+    ? openBerths.length
+      ? `，还有 ${openBerths.length} 个泊位没停：${openBerths
+          .map(
+            (b) =>
+              `${COLOR_NAMES[b.color - 1]}块停到第 ${Math.floor(b.i / state.w) + 1} 行第 ${(b.i % state.w) + 1} 列`,
+          )
+          .join('；')}`
+      : '，泊位都已停好'
+    : '';
   canvas.setAttribute(
     'aria-label',
-    `第 ${level.id} 关 ${level.name}${level.challenge ? '，挑战关' : ''}。目标${goal}。场上${countsText}${pinnedText}${lastText}。已用 ${moves} 步，上限 ${level.limit} 步，${level.par} 步内三星。方向键选块，空格拿起。`,
+    `第 ${level.id} 关 ${level.name}${level.challenge ? '，挑战关' : ''}。目标${goal}。场上${countsText}${pinnedText}${lastText}${berthText}。已用 ${moves} 步，上限 ${level.limit} 步，${level.par} 步内三星。方向键选块，空格拿起。`,
   );
 }
 
 function updateGoal() {
+  const berthCount = state.berths ? state.berths.length : 0;
+  const berthSuffix = berthCount ? ` · ${berthCount} 个泊位` : '';
   if (level.goal === 'color') {
     const name = COLOR_NAMES[level.targetColor - 1] || '目标';
     const color = PALETTE[level.targetColor - 1]?.base || '#ef4444';
     elGoal.classList.add('is-color');
     elGoal.style.setProperty('--goal-color', color);
-    elGoalText.textContent = `只清${name}块`;
-    elGoal.setAttribute('aria-label', `本关目标：只消除${name}色方块`);
+    elGoalText.textContent = `只清${name}块${berthSuffix}`;
+    elGoal.setAttribute(
+      'aria-label',
+      `本关目标：只消除${name}色方块${berthCount ? `，并把 ${berthCount} 个方块停进对应泊位` : ''}`,
+    );
   } else {
     elGoal.classList.remove('is-color');
     elGoal.style.removeProperty('--goal-color');
-    elGoalText.textContent = '清空全场';
-    elGoal.setAttribute('aria-label', '本关目标：清空全场');
+    elGoalText.textContent = `清空全场${berthSuffix}`;
+    elGoal.setAttribute(
+      'aria-label',
+      `本关目标：清空全场${berthCount ? `，并把 ${berthCount} 个方块停进对应泊位` : ''}`,
+    );
   }
 }
 
@@ -303,6 +331,8 @@ function hintOverview() {
   const goalLine = isColor
     ? `还要清 ${pairsLeft} 对${name}块`
     : `场上还剩 ${pairsLeft} 对`;
+  const berthLeft = berthsLeft(state);
+  const berthLine = berthLeft ? `；还有 ${berthLeft} 个泊位没停` : '';
   let tip;
   if (popsNow >= 2) {
     tip = `现在有 ${popsNow} 对${isColor ? name : ''}能直接消——先想清楚消哪一对更不挡后面的路`;
@@ -313,7 +343,7 @@ function hintOverview() {
   } else {
     tip = '没有现成的同色对——先找一个能「停住」的位置（墙、边界、异色块），把一块送到同伴旁边';
   }
-  return `${goalLine}；${tip}。`;
+  return `${goalLine}${berthLine}；${tip}。`;
 }
 
 // 第 1 层：只给方向，不给坐标
@@ -752,6 +782,8 @@ function maybeCheckDead() {
     c: Array.from(state.c),
     fixed: state.fixed ? Array.from(state.fixed) : null,
     lastColor: state.lastColor || 0,
+    berths: state.berths ? state.berths.map((b) => [b.i, b.color]) : null,
+    filled: state.filled || 0,
     level: { goal: level.goal, targetColor: level.targetColor },
     budget,
   };
@@ -972,6 +1004,7 @@ function closeIntro() {
 function isLevelUnlocked(index) {
   const lv = LEVELS[index];
   if (!lv) return false;
+  if (DEV_UNLOCK) return true;
   if (index === 0) return true;
   if (lv.id === level.id) return true;
   if (save.best[lv.id] != null) return true;
@@ -1094,6 +1127,12 @@ function renderLevelGrid() {
     b,
     ` 颗星 · 已开放 ${unlockedCount} / ${TOTAL_LEVELS} 关`,
   );
+  if (DEV_UNLOCK) {
+    const note = document.createElement('span');
+    note.className = 'test-note';
+    note.textContent = ' · 测试模式：全部解锁';
+    elLevelSummary.appendChild(note);
+  }
 }
 
 function openLevels() {
@@ -1370,6 +1409,7 @@ function commit({ r, c, dir }) {
 
   const before = state;
   const color = before.c[r * before.w + c];
+  const filledBefore = before.filled || 0;
   const poppedAnchor =
     m.res === 'pop' &&
     !!before.fixed &&
@@ -1380,9 +1420,19 @@ function commit({ r, c, dir }) {
   state = applyMove(state, m);
   moves++;
   if (m.res === 'pop') pops++;
+  const berthDone = (state.filled || 0) !== filledBefore;
   updateHud();
   updateUndo();
   setHint(baseHint());
+  if (berthDone) {
+    const left = berthsLeft(state);
+    setHint(
+      left
+        ? `停好一个泊位，还剩 ${left} 个。`
+        : '泊位都停好了——把剩下的颜色清完就通关。',
+      2600,
+    );
+  }
 
   // 读屏播报这一步的结果（鼠标 / 键盘都走这里）
   if (m.res === 'pop') {
@@ -1397,7 +1447,9 @@ function commit({ r, c, dir }) {
     );
   } else {
     announce(
-      `${COLOR_NAMES[color - 1]}块滑到第 ${m.tr + 1} 行第 ${m.tc + 1} 列，用了 ${moves} 步。`,
+      `${COLOR_NAMES[color - 1]}块滑到第 ${m.tr + 1} 行第 ${m.tc + 1} 列，用了 ${moves} 步${
+        berthDone ? '，停进了一个泊位' : ''
+      }。`,
     );
   }
 
@@ -1458,8 +1510,20 @@ function playAnim(next) {
       showWin();
       return;
     }
-    if (moves >= level.limit) showFail();
-    else maybeCheckDead();
+    if (moves >= level.limit) {
+      showFail();
+      return;
+    }
+    if (berthsLeft(state) > 0 && countBlocks(state) === 0) {
+      setHint(
+        '棋盘清空了，但还有泊位没停——撤销一步，把对应颜色停进标记格。',
+        0,
+        'warn',
+      );
+      announce('棋盘清空了，但还有泊位没停。撤销一步，把对应颜色停进标记格。');
+      return;
+    }
+    maybeCheckDead();
   }, next.dur + 16);
 }
 
@@ -1790,9 +1854,6 @@ resize();
 requestDraw();
 
 // 只在本地开发环境暴露调试钩子；生产（GitHub Pages）完全不定义
-const isLocalHost =
-  ['localhost', '127.0.0.1', '::1', '[::1]'].includes(location.hostname) ||
-  location.protocol === 'file:';
 if (isLocalHost) {
   window.__zgz = {
     get level() {
@@ -1875,6 +1936,9 @@ if (isLocalHost) {
     closeLevels,
     renderLevelGrid,
     isLevelUnlocked,
+    get devUnlock() {
+      return DEV_UNLOCK;
+    },
     save,
     get replay() {
       return replay;

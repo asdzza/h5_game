@@ -9,12 +9,14 @@ export const DIRS = {
 export const DIR_KEYS = ['U', 'D', 'L', 'R'];
 
 // rows: 数组，'#'=墙/虚空, '.'=空, 'A'..'E'=颜色, 'a'..'e'=同色锚块（不可拖，可被同色撞掉）,
+// 'f'..'j'=泊位（空位，颜色 A–E）,
 // '1'..'5'=颜色并把该色标记为「最后一对」（最后一次消除必须是整盘最后一步）
 export function parse(rows) {
   const h = rows.length;
   const w = Math.max(...rows.map(r => r.length));
   const c = new Int8Array(w * h);
   const fixed = new Uint8Array(w * h);
+  const berths = [];
   let lastColor = 0;
   for (let r = 0; r < h; r++) {
     for (let x = 0; x < w; x++) {
@@ -28,14 +30,34 @@ export function parse(rows) {
       } else if (ch >= 'a' && ch <= 'e') {
         c[i] = ch.charCodeAt(0) - 96;
         fixed[i] = 1;
+      } else if (ch >= 'f' && ch <= 'j') {
+        c[i] = 0;
+        berths.push({ i, color: ch.charCodeAt(0) - 101 });
       } else c[i] = ch.charCodeAt(0) - 64;
     }
   }
-  return { w, h, c, fixed, lastColor };
+  return { w, h, c, fixed, lastColor, berths, filled: 0 };
 }
 
 export function clone(st) {
-  return { w: st.w, h: st.h, c: Int8Array.from(st.c), fixed: st.fixed, lastColor: st.lastColor };
+  return {
+    w: st.w,
+    h: st.h,
+    c: Int8Array.from(st.c),
+    fixed: st.fixed,
+    lastColor: st.lastColor,
+    berths: st.berths,
+    filled: st.filled || 0,
+  };
+}
+
+export function berthsLeft(st) {
+  if (!st.berths || !st.berths.length) return 0;
+  let n = 0;
+  for (let k = 0; k < st.berths.length; k++) {
+    if (!((st.filled || 0) & (1 << k))) n++;
+  }
+  return n;
 }
 
 export function isFixed(st, r, x) {
@@ -51,6 +73,7 @@ export function key(st) {
     for (let i = 0; i < st.fixed.length; i++) if (st.fixed[i]) s += `|${i}`;
   }
   if (st.lastColor) s += `|L${st.lastColor}`;
+  if (st.berths && st.berths.length) s += `|P${st.filled || 0}`;
   return s;
 }
 
@@ -72,15 +95,18 @@ export function colorsPresent(st) {
 }
 
 export function toRows(st) {
+  const berth = new Map((st.berths || []).map((b) => [b.i, b.color]));
   const out = [];
   for (let r = 0; r < st.h; r++) {
     let line = '';
     for (let x = 0; x < st.w; x++) {
       const i = r * st.w + x;
       const v = st.c[i];
-      line += v === -1 ? '#' : v === 0 ? '.' : isFixed(st, r, x)
-        ? String.fromCharCode(96 + v)
-        : String.fromCharCode(64 + v);
+      line += v === -1 ? '#' : v === 0
+        ? (berth.has(i) ? String.fromCharCode(101 + berth.get(i)) : '.')
+        : isFixed(st, r, x)
+          ? String.fromCharCode(96 + v)
+          : String.fromCharCode(64 + v);
     }
     out.push(line);
   }
@@ -138,13 +164,22 @@ export function applyA(st, m) {
       ns.fixed[bi] = 0;
     }
   } else {
+    const color = st.c[m.r * st.w + m.c];
     ns.c[m.r * st.w + m.c] = 0;
-    ns.c[m.tr * st.w + m.tc] = st.c[m.r * st.w + m.c];
+    ns.c[m.tr * st.w + m.tc] = color;
+    if (ns.berths && ns.berths.length) {
+      for (let k = 0; k < ns.berths.length; k++) {
+        const b = ns.berths[k];
+        if (b.color === color && b.i === m.tr * st.w + m.tc) {
+          ns.filled = (ns.filled || 0) | (1 << k);
+        }
+      }
+    }
   }
   return ns;
 }
 
-export function goalA(st) { return countBlocks(st) === 0; }
+export function goalA(st) { return countBlocks(st) === 0 && berthsLeft(st) === 0; }
 
 // ---------- 方案B：整色同步滑动 ----------
 export function genB(st) {

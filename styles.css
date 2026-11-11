@@ -738,6 +738,10 @@ body {
   font-weight: 650;
 }
 
+.level-summary .test-note {
+  color: var(--accent);
+}
+
 .level-legend {
   margin: -4px 0 10px !important;
   font-size: 11px !important;

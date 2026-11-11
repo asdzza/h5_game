@@ -387,6 +387,78 @@ function drawAnchorMark(ctx, x, y, sizeX, sizeY, cell, minSize) {
   ctx.restore();
 }
 
+/** 泊位：彩色虚线停车格（完成勾由 drawBerthCheck 在方块之后单独画） */
+function drawBerth(ctx, px, py, cell, colorIndex, filled, t) {
+  const pal = PALETTE[(colorIndex - 1) % PALETTE.length];
+  const idx = (colorIndex - 1) % 5;
+  const inset = cell * 0.13;
+  const size = cell - inset * 2;
+  const x = px + inset;
+  const y = py + inset;
+  const r = cell * 0.18;
+
+  ctx.save();
+  ctx.globalAlpha = filled ? 0.18 : 0.1;
+  ctx.fillStyle = pal.base;
+  roundRect(ctx, x, y, size, size, r);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  ctx.strokeStyle = pal.light;
+  ctx.lineWidth = Math.max(1.5, cell * 0.045);
+  ctx.lineCap = 'round';
+  ctx.shadowColor = t.blockShadow;
+  ctx.shadowBlur = cell * 0.08;
+  if (idx === 0) ctx.setLineDash([]);
+  else if (idx === 1) ctx.setLineDash([cell * 0.11, cell * 0.07]);
+  else if (idx === 2) ctx.setLineDash([cell * 0.02, cell * 0.07]);
+  else if (idx === 3) ctx.setLineDash([cell * 0.11, cell * 0.055, cell * 0.02, cell * 0.055]);
+  else ctx.setLineDash([]);
+  roundRect(ctx, x, y, size, size, r);
+  ctx.stroke();
+  if (idx === 4) {
+    const d = cell * 0.05;
+    ctx.setLineDash([]);
+    roundRect(ctx, x + d, y + d, size - d * 2, size - d * 2, Math.max(1, r - d));
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  ctx.shadowColor = 'transparent';
+
+  // 中心圆点：和实心方块区分开，像地面上的停车标记
+  ctx.beginPath();
+  ctx.arc(px + cell / 2, py + cell / 2, cell * 0.075, 0, Math.PI * 2);
+  ctx.fillStyle = pal.base;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(248,250,252,.6)';
+  ctx.lineWidth = Math.max(1, cell * 0.02);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+/** 完成勾：单独画在方块之上，方块还停在泊位上时也能看见 */
+function drawBerthCheck(ctx, px, py, cell) {
+  const s = cell * 0.24;
+  const bx = px + cell - s - cell * 0.055;
+  const by = py + cell * 0.055;
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(bx + s / 2, by + s / 2, s / 2, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(15,23,42,.74)';
+  ctx.fill();
+  ctx.strokeStyle = '#f8fafc';
+  ctx.lineWidth = Math.max(1.5, cell * 0.035);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(bx + s * 0.27, by + s * 0.52);
+  ctx.lineTo(bx + s * 0.45, by + s * 0.7);
+  ctx.lineTo(bx + s * 0.75, by + s * 0.32);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function cellKey(r, c) {
   return r + ',' + c;
 }
@@ -478,6 +550,24 @@ export function draw(ctx, layout, state, fx = {}) {
     }
   }
 
+  // 泊位：画在方块下面，方块停进去时会被盖住，但完成勾会留在右上角
+  if (state.berths && state.berths.length) {
+    for (let k = 0; k < state.berths.length; k++) {
+      const b = state.berths[k];
+      const br = Math.floor(b.i / state.w);
+      const bc = b.i % state.w;
+      drawBerth(
+        ctx,
+        bx + bc * cell,
+        by + br * cell,
+        cell,
+        b.color,
+        !!((state.filled || 0) & (1 << k)),
+        t,
+      );
+    }
+  }
+
   // 静止方块
   for (let r = 0; r < h; r++) {
     for (let c = 0; c < w; c++) {
@@ -491,6 +581,20 @@ export function draw(ctx, layout, state, fx = {}) {
       if (isFixed(state, r, c)) opts.fixed = true;
       if (state.lastColor === v) opts.last = true;
       drawBlock(ctx, px, py, cell, v, opts, t);
+    }
+  }
+
+  // 已完成泊位的对勾画在方块之上，方块停进去时不会被盖住
+  if (state.berths && state.berths.length) {
+    for (let k = 0; k < state.berths.length; k++) {
+      if (!((state.filled || 0) & (1 << k))) continue;
+      const b = state.berths[k];
+      drawBerthCheck(
+        ctx,
+        bx + (b.i % state.w) * cell,
+        by + Math.floor(b.i / state.w) * cell,
+        cell,
+      );
     }
   }
 

@@ -1,4 +1,4 @@
-import { neighbors, isGoal, key, countBlocks, colorsPresent, key as K } from './engine.mjs';
+import { neighbors, isGoal, key, countBlocks, colorsPresent, berthsLeft, key as K } from './engine.mjs';
 
 class Heap {
   constructor() { this.a = []; }
@@ -33,7 +33,7 @@ class Heap {
 }
 
 export function heuristic(st, ruleset) {
-  if (ruleset === 'A') return countBlocks(st) / 2;
+  if (ruleset === 'A') return countBlocks(st) / 2 + berthsLeft(st);
   return countBlocks(st) - colorsPresent(st).size;
 }
 
@@ -43,6 +43,7 @@ export function heuristic(st, ruleset) {
 export function aStar(start, ruleset, cap = 120000, opts = {}) {
   const target = opts.targetColor ?? null;
   const goalFn = (st) => {
+    if (berthsLeft(st) > 0) return false;
     if (target != null) {
       for (let i = 0; i < st.c.length; i++) if (st.c[i] === target) return false;
       return true;
@@ -53,7 +54,7 @@ export function aStar(start, ruleset, cap = 120000, opts = {}) {
     if (target != null) {
       let n = 0;
       for (let i = 0; i < st.c.length; i++) if (st.c[i] === target) n++;
-      return n / 2;
+      return n / 2 + berthsLeft(st);
     }
     return heuristic(st, ruleset);
   };
