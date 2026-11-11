@@ -1,4 +1,4 @@
-import { COLORS } from './game.js';
+import { COLORS, isFixed } from './game.js';
 
 const PALETTE = [
   { base: '#ef4444', light: '#fb7185', dark: '#b91c1c' },
@@ -248,7 +248,7 @@ function drawEdgePattern(ctx, x, y, w, h, r, cell, colorIndex) {
 }
 
 function drawBlock(ctx, px, py, cell, colorIndex, opts = {}, t = BOARD_THEME.dark) {
-  const { scale = 1, alpha = 1, lift = 0, sx = 1, sy = 1 } = opts;
+  const { scale = 1, alpha = 1, lift = 0, sx = 1, sy = 1, fixed = false, last = false } = opts;
   const inset = cell * 0.075;
   const base = (cell - inset * 2) * scale;
   const sizeX = base * sx;
@@ -311,6 +311,151 @@ function drawBlock(ctx, px, py, cell, colorIndex, opts = {}, t = BOARD_THEME.dar
     drawEdgePattern(ctx, x, y, sizeX, sizeY, radius, cell, colorIndex);
   }
 
+  // 锚块：压暗一点点 + 正中的钉帽，和墙区分开
+  if (fixed) {
+    ctx.fillStyle = 'rgba(15,23,42,.14)';
+    roundRect(ctx, x, y, sizeX, sizeY, radius);
+    ctx.fill();
+    drawAnchorMark(ctx, x, y, sizeX, sizeY, cell, minSize);
+  }
+
+  // 最后一对：右上角小方格旗，表示「这一色要留到最后」
+  if (last) drawLastMark(ctx, x, y, sizeX, sizeY, cell, minSize);
+
+  ctx.restore();
+}
+
+/** 「最后一对」标记：右上角的方格旗，和锚块的钉帽区分开 */
+function drawLastMark(ctx, x, y, sizeX, sizeY, cell, minSize) {
+  const s = minSize * 0.34;
+  const pad = Math.max(1, cell * 0.045);
+  const bx = x + sizeX - s - pad;
+  const by = y + pad;
+  const r = s * 0.24;
+  ctx.save();
+
+  ctx.fillStyle = 'rgba(15,23,42,.62)';
+  roundRect(ctx, bx, by, s, s, r);
+  ctx.fill();
+
+  const q = s * 0.26;
+  const ox = bx + s / 2 - q;
+  const oy = by + s / 2 - q;
+  ctx.fillStyle = 'rgba(248,250,252,.94)';
+  ctx.fillRect(ox, oy, q, q);
+  ctx.fillRect(ox + q, oy + q, q, q);
+  ctx.fillStyle = 'rgba(15,23,42,.9)';
+  ctx.fillRect(ox + q, oy, q, q);
+  ctx.fillRect(ox, oy + q, q, q);
+
+  ctx.strokeStyle = 'rgba(248,250,252,.78)';
+  ctx.lineWidth = Math.max(1, cell * 0.02);
+  roundRect(ctx, bx + 0.5, by + 0.5, s - 1, s - 1, r);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** 锚块正中的钉帽：深色圆盘 + 十字槽 + 高光，小尺寸下也能一眼认出“钉死了” */
+function drawAnchorMark(ctx, x, y, sizeX, sizeY, cell, minSize) {
+  const cx = x + sizeX / 2;
+  const cy = y + sizeY / 2;
+  const r = minSize * 0.2;
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(15,23,42,.62)';
+  ctx.fill();
+  ctx.lineWidth = Math.max(1, cell * 0.028);
+  ctx.strokeStyle = 'rgba(226,232,240,.65)';
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(226,232,240,.85)';
+  ctx.lineWidth = Math.max(1.2, cell * 0.04);
+  ctx.lineCap = 'round';
+  const k = r * 0.52;
+  ctx.beginPath();
+  ctx.moveTo(cx - k, cy);
+  ctx.lineTo(cx + k, cy);
+  ctx.moveTo(cx, cy - k);
+  ctx.lineTo(cx, cy + k);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(cx - r * 0.3, cy - r * 0.32, r * 0.24, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,255,.42)';
+  ctx.fill();
+  ctx.restore();
+}
+
+/** 泊位：彩色虚线停车格（完成勾由 drawBerthCheck 在方块之后单独画） */
+function drawBerth(ctx, px, py, cell, colorIndex, filled, t) {
+  const pal = PALETTE[(colorIndex - 1) % PALETTE.length];
+  const idx = (colorIndex - 1) % 5;
+  const inset = cell * 0.13;
+  const size = cell - inset * 2;
+  const x = px + inset;
+  const y = py + inset;
+  const r = cell * 0.18;
+
+  ctx.save();
+  ctx.globalAlpha = filled ? 0.18 : 0.1;
+  ctx.fillStyle = pal.base;
+  roundRect(ctx, x, y, size, size, r);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  ctx.strokeStyle = pal.light;
+  ctx.lineWidth = Math.max(1.5, cell * 0.045);
+  ctx.lineCap = 'round';
+  ctx.shadowColor = t.blockShadow;
+  ctx.shadowBlur = cell * 0.08;
+  if (idx === 0) ctx.setLineDash([]);
+  else if (idx === 1) ctx.setLineDash([cell * 0.11, cell * 0.07]);
+  else if (idx === 2) ctx.setLineDash([cell * 0.02, cell * 0.07]);
+  else if (idx === 3) ctx.setLineDash([cell * 0.11, cell * 0.055, cell * 0.02, cell * 0.055]);
+  else ctx.setLineDash([]);
+  roundRect(ctx, x, y, size, size, r);
+  ctx.stroke();
+  if (idx === 4) {
+    const d = cell * 0.05;
+    ctx.setLineDash([]);
+    roundRect(ctx, x + d, y + d, size - d * 2, size - d * 2, Math.max(1, r - d));
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  ctx.shadowColor = 'transparent';
+
+  // 中心圆点：和实心方块区分开，像地面上的停车标记
+  ctx.beginPath();
+  ctx.arc(px + cell / 2, py + cell / 2, cell * 0.075, 0, Math.PI * 2);
+  ctx.fillStyle = pal.base;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(248,250,252,.6)';
+  ctx.lineWidth = Math.max(1, cell * 0.02);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+/** 完成勾：单独画在方块之上，方块还停在泊位上时也能看见 */
+function drawBerthCheck(ctx, px, py, cell) {
+  const s = cell * 0.24;
+  const bx = px + cell - s - cell * 0.055;
+  const by = py + cell * 0.055;
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(bx + s / 2, by + s / 2, s / 2, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(15,23,42,.74)';
+  ctx.fill();
+  ctx.strokeStyle = '#f8fafc';
+  ctx.lineWidth = Math.max(1.5, cell * 0.035);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(bx + s * 0.27, by + s * 0.52);
+  ctx.lineTo(bx + s * 0.45, by + s * 0.7);
+  ctx.lineTo(bx + s * 0.75, by + s * 0.32);
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -377,7 +522,7 @@ export function draw(ctx, layout, state, fx = {}) {
       const hitstop = anim.hitstop || 0;
       animP = easeOut(clamp01(travel ? (elapsed - hitstop) / travel : 1));
       // state 里两块都已消失，无需跳过
-    } else if (anim.kind === 'bounce') {
+    } else if (anim.kind === 'bounce' || anim.kind === 'shake') {
       skip.add(cellKey(anim.r, anim.c));
     } else if (anim.kind === 'rewind') {
       // 撤销时把「这一步」倒放：移动 = 幽灵块滑回原位；消除 = 两块在原位长回来
@@ -405,6 +550,24 @@ export function draw(ctx, layout, state, fx = {}) {
     }
   }
 
+  // 泊位：画在方块下面，方块停进去时会被盖住，但完成勾会留在右上角
+  if (state.berths && state.berths.length) {
+    for (let k = 0; k < state.berths.length; k++) {
+      const b = state.berths[k];
+      const br = Math.floor(b.i / state.w);
+      const bc = b.i % state.w;
+      drawBerth(
+        ctx,
+        bx + bc * cell,
+        by + br * cell,
+        cell,
+        b.color,
+        !!((state.filled || 0) & (1 << k)),
+        t,
+      );
+    }
+  }
+
   // 静止方块
   for (let r = 0; r < h; r++) {
     for (let c = 0; c < w; c++) {
@@ -414,14 +577,23 @@ export function draw(ctx, layout, state, fx = {}) {
       const px = bx + c * cell;
       const py = by + r * cell;
       const isDragged = drag && drag.r === r && drag.c === c;
-      drawBlock(
+      const opts = isDragged ? { scale: 1.07, lift: 0.02 } : {};
+      if (isFixed(state, r, c)) opts.fixed = true;
+      if (state.lastColor === v) opts.last = true;
+      drawBlock(ctx, px, py, cell, v, opts, t);
+    }
+  }
+
+  // 已完成泊位的对勾画在方块之上，方块停进去时不会被盖住
+  if (state.berths && state.berths.length) {
+    for (let k = 0; k < state.berths.length; k++) {
+      if (!((state.filled || 0) & (1 << k))) continue;
+      const b = state.berths[k];
+      drawBerthCheck(
         ctx,
-        px,
-        py,
+        bx + (b.i % state.w) * cell,
+        by + Math.floor(b.i / state.w) * cell,
         cell,
-        v,
-        isDragged ? { scale: 1.07, lift: 0.02 } : {},
-        t,
       );
     }
   }
@@ -462,7 +634,7 @@ export function draw(ctx, layout, state, fx = {}) {
       py,
       cell,
       color,
-      { scale: 1 + Math.sin(animP * Math.PI) * 0.03, sx, sy },
+      { scale: 1 + Math.sin(animP * Math.PI) * 0.03, sx, sy, last: state.lastColor === color },
       t,
     );
 
@@ -503,7 +675,7 @@ export function draw(ctx, layout, state, fx = {}) {
         y0 + (y1 - y0) * e,
         cell,
         anim.color,
-        { scale: 1 + Math.sin(p * Math.PI) * 0.03, alpha: 0.5 + 0.5 * p },
+        { scale: 1 + Math.sin(p * Math.PI) * 0.03, alpha: 0.5 + 0.5 * p, last: state.lastColor === anim.color },
         t,
       );
     } else {
@@ -514,7 +686,7 @@ export function draw(ctx, layout, state, fx = {}) {
         [m.r, m.c],
         [m.br, m.bc],
       ]) {
-        drawBlock(ctx, bx + cc * cell, by + rr * cell, cell, anim.color, { scale: grow, alpha }, t);
+        drawBlock(ctx, bx + cc * cell, by + rr * cell, cell, anim.color, { scale: grow, alpha, last: state.lastColor === anim.color }, t);
       }
       const mx = bx + ((m.c + m.bc) / 2 + 0.5) * cell;
       const my = by + ((m.r + m.br) / 2 + 0.5) * cell;
@@ -562,6 +734,7 @@ export function draw(ctx, layout, state, fx = {}) {
       {
         scale: preScale + Math.sin(Math.min(1, travelP) * Math.PI) * 0.05,
         alpha: fade,
+        last: before.lastColor === color,
       },
       t,
     );
@@ -626,7 +799,24 @@ export function draw(ctx, layout, state, fx = {}) {
       {
         sx: alongX ? 1 - squash : 1 + squash * 0.45,
         sy: alongX ? 1 + squash * 0.45 : 1 - squash,
+        fixed: isFixed(state, anim.r, anim.c),
       },
+      t,
+    );
+  }
+
+  // 锚块拖不动：原地抖一下，表示“被钉住”而不是“被挡住”
+  if (anim && anim.kind === 'shake') {
+    const p = clamp01((now - anim.t0) / anim.dur);
+    const k = Math.sin(p * Math.PI * 5) * (1 - p) * cell * 0.05;
+    const color = state.c[anim.r * w + anim.c];
+    drawBlock(
+      ctx,
+      bx + anim.c * cell + k,
+      by + anim.r * cell,
+      cell,
+      color,
+      { fixed: isFixed(state, anim.r, anim.c) },
       t,
     );
   }

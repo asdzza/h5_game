@@ -7,9 +7,17 @@
 import { canStillWin } from './solver.js';
 
 self.onmessage = (e) => {
-  const { id, w, h, c, level, budget } = e.data || {};
+  const { id, w, h, c, fixed, lastColor, berths, filled, level, budget } = e.data || {};
   if (!id || !w || !h || !c || !level) return;
-  const state = { w, h, c: Int8Array.from(c) };
+  const state = {
+    w,
+    h,
+    c: Int8Array.from(c),
+    fixed: fixed ? Uint8Array.from(fixed) : undefined,
+    lastColor: lastColor || 0,
+    berths: Array.isArray(berths) ? berths.map(([i, color]) => ({ i, color })) : [],
+    filled: filled || 0,
+  };
   const result = canStillWin(state, level, budget);
   self.postMessage({ id, win: result.win, complete: result.complete, nodes: result.nodes });
 };

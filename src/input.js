@@ -1,4 +1,4 @@
-import { DIRS, moveFrom } from './game.js';
+import { DIRS, isFixed, moveFrom } from './game.js';
 
 // 手指按下时天然会抖 6–12 px；阈值太低会把“想点一下看看”当成落子。
 const THRESHOLD = 20;
@@ -76,6 +76,12 @@ export function attachInput(canvas, api) {
     if (!hit) return;
     const st = api.getState();
     if (st.c[hit.r * st.w + hit.c] <= 0) return;
+    // 锚块不进入拖拽状态，直接给“钉住”的反馈
+    if (isFixed(st, hit.r, hit.c)) {
+      e.preventDefault();
+      if (api.onPinned) api.onPinned({ r: hit.r, c: hit.c });
+      return;
+    }
     e.preventDefault();
     drag = {
       r: hit.r,

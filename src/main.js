@@ -1,12 +1,15 @@
 import {
   parse,
   moveFrom,
+  isLastPairBlocked,
   applyMove,
   isGoal,
   moveDistance,
   legalMoves,
   countBlocks,
   at,
+  isFixed,
+  berthsLeft,
   DIRS,
 } from './game.js';
 import { LEVELS, TOTAL_LEVELS } from './levels.js';
@@ -72,6 +75,12 @@ const TITLE_KEY = 'zgz.seenTitle.v1';
 const SAVE_KEY = 'zgz.save.v2';
 const THEME_KEY = 'zgz.theme';
 const ZOOM_KEY = 'zgz.zoom.v1';
+// 本地开发 / 预览环境默认全关解锁，方便逐关测试；?locked=1 可切回真实的逐关解锁流程
+const isLocalHost =
+  ['localhost', '127.0.0.1', '::1', '[::1]'].includes(location.hostname) ||
+  location.protocol === 'file:';
+const DEV_UNLOCK =
+  isLocalHost && !new URLSearchParams(location.search).has('locked');
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
 const COLOR_NAMES = ['红', '蓝', '绿', '黄', '紫'];
 const HITSTOP = 60;
@@ -200,9 +209,11 @@ function updateHud() {
 // canvas 没法被读屏直接读，所以把「目标 + 场上各色数量 + 步数」写进 aria-label
 function updateBoardA11y() {
   const counts = [0, 0, 0, 0, 0];
+  let pinned = 0;
   for (let i = 0; i < state.c.length; i++) {
     const v = state.c[i];
     if (v > 0) counts[v - 1]++;
+    if (state.fixed && state.fixed[i]) pinned++;
   }
   const parts = [];
   counts.forEach((n, i) => {
@@ -211,25 +222,50 @@ function updateBoardA11y() {
   const goal =
     level.goal === 'color' ? `只清${COLOR_NAMES[level.targetColor - 1]}块` : '清空全场';
   const countsText = parts.length ? parts.join('，') : '场上没有方块';
+  const pinnedText = pinned ? `，其中 ${pinned} 个带钉子，拖不动，要用同色块撞掉` : '';
+  const lastText = state.lastColor
+    ? `，${COLOR_NAMES[state.lastColor - 1]}块是最后一对，必须等别的颜色都清完才能消`
+    : '';
+  const openBerths = (state.berths || [])
+    .map((b, k) => ({ ...b, done: !!((state.filled || 0) & (1 << k)) }))
+    .filter((b) => !b.done);
+  const berthText = state.berths && state.berths.length
+    ? openBerths.length
+      ? `，还有 ${openBerths.length} 个泊位没停：${openBerths
+          .map(
+            (b) =>
+              `${COLOR_NAMES[b.color - 1]}块停到第 ${Math.floor(b.i / state.w) + 1} 行第 ${(b.i % state.w) + 1} 列`,
+          )
+          .join('；')}`
+      : '，泊位都已停好'
+    : '';
   canvas.setAttribute(
     'aria-label',
-    `第 ${level.id} 关 ${level.name}${level.challenge ? '，挑战关' : ''}。目标${goal}。场上${countsText}。已用 ${moves} 步，上限 ${level.limit} 步，${level.par} 步内三星。方向键选块，空格拿起。`,
+    `第 ${level.id} 关 ${level.name}${level.challenge ? '，挑战关' : ''}。目标${goal}。场上${countsText}${pinnedText}${lastText}${berthText}。已用 ${moves} 步，上限 ${level.limit} 步，${level.par} 步内三星。方向键选块，空格拿起。`,
   );
 }
 
 function updateGoal() {
+  const berthCount = state.berths ? state.berths.length : 0;
+  const berthSuffix = berthCount ? ` · ${berthCount} 个泊位` : '';
   if (level.goal === 'color') {
     const name = COLOR_NAMES[level.targetColor - 1] || '目标';
     const color = PALETTE[level.targetColor - 1]?.base || '#ef4444';
     elGoal.classList.add('is-color');
     elGoal.style.setProperty('--goal-color', color);
-    elGoalText.textContent = `只清${name}块`;
-    elGoal.setAttribute('aria-label', `本关目标：只消除${name}色方块`);
+    elGoalText.textContent = `只清${name}块${berthSuffix}`;
+    elGoal.setAttribute(
+      'aria-label',
+      `本关目标：只消除${name}色方块${berthCount ? `，并把 ${berthCount} 个方块停进对应泊位` : ''}`,
+    );
   } else {
     elGoal.classList.remove('is-color');
     elGoal.style.removeProperty('--goal-color');
-    elGoalText.textContent = '清空全场';
-    elGoal.setAttribute('aria-label', '本关目标：清空全场');
+    elGoalText.textContent = `清空全场${berthSuffix}`;
+    elGoal.setAttribute(
+      'aria-label',
+      `本关目标：清空全场${berthCount ? `，并把 ${berthCount} 个方块停进对应泊位` : ''}`,
+    );
   }
 }
 
@@ -295,6 +331,8 @@ function hintOverview() {
   const goalLine = isColor
     ? `还要清 ${pairsLeft} 对${name}块`
     : `场上还剩 ${pairsLeft} 对`;
+  const berthLeft = berthsLeft(state);
+  const berthLine = berthLeft ? `；还有 ${berthLeft} 个泊位没停` : '';
   let tip;
   if (popsNow >= 2) {
     tip = `现在有 ${popsNow} 对${isColor ? name : ''}能直接消——先想清楚消哪一对更不挡后面的路`;
@@ -305,7 +343,7 @@ function hintOverview() {
   } else {
     tip = '没有现成的同色对——先找一个能「停住」的位置（墙、边界、异色块），把一块送到同伴旁边';
   }
-  return `${goalLine}；${tip}。`;
+  return `${goalLine}${berthLine}；${tip}。`;
 }
 
 // 第 1 层：只给方向，不给坐标
@@ -742,6 +780,10 @@ function maybeCheckDead() {
     w: state.w,
     h: state.h,
     c: Array.from(state.c),
+    fixed: state.fixed ? Array.from(state.fixed) : null,
+    lastColor: state.lastColor || 0,
+    berths: state.berths ? state.berths.map((b) => [b.i, b.color]) : null,
+    filled: state.filled || 0,
     level: { goal: level.goal, targetColor: level.targetColor },
     budget,
   };
@@ -962,6 +1004,7 @@ function closeIntro() {
 function isLevelUnlocked(index) {
   const lv = LEVELS[index];
   if (!lv) return false;
+  if (DEV_UNLOCK) return true;
   if (index === 0) return true;
   if (lv.id === level.id) return true;
   if (save.best[lv.id] != null) return true;
@@ -1084,6 +1127,12 @@ function renderLevelGrid() {
     b,
     ` 颗星 · 已开放 ${unlockedCount} / ${TOTAL_LEVELS} 关`,
   );
+  if (DEV_UNLOCK) {
+    const note = document.createElement('span');
+    note.className = 'test-note';
+    note.textContent = ' · 测试模式：全部解锁';
+    elLevelSummary.appendChild(note);
+  }
 }
 
 function openLevels() {
@@ -1320,6 +1369,12 @@ function loadLevel(index) {
 
 function invalidHint(r, c, dir) {
   const self = at(state, r, c);
+  if (isFixed(state, r, c)) {
+    return '这块被钉死了，拖不动——用同色块撞它才能拆掉。';
+  }
+  if (isLastPairBlocked(state, r, c, dir)) {
+    return '这是最后一对——先把别的颜色清完，它才能消。';
+  }
   const [dr, dc] = DIRS[dir];
   const next = at(state, r + dr, c + dc);
   if (next > 0 && next !== self) {
@@ -1329,10 +1384,23 @@ function invalidHint(r, c, dir) {
   return '这个方向滑不动，换个方向试试。';
 }
 
+// 锚块拖不动：给“钉住”的反馈，而不是普通的“被挡住”
+function pinnedFeedback(r, c) {
+  if (anim || won || failed) return;
+  setHint('这块被钉死了，拖不动——用同色块撞它才能拆掉。', 2800, 'warn');
+  audio.play('bounce');
+  playAnim({ kind: 'shake', r, c, t0: performance.now(), dur: 280 });
+  announce('这块被钉死了，拖不动。用同色块撞它才能拆掉。');
+}
+
 function commit({ r, c, dir }) {
   if (anim || won || failed) return;
   const m = moveFrom(state, r, c, dir);
   if (!m) {
+    if (isFixed(state, r, c)) {
+      pinnedFeedback(r, c);
+      return;
+    }
     setHint(invalidHint(r, c, dir), 2200);
     audio.play('bounce');
     playAnim({ kind: 'bounce', r, c, dir, t0: performance.now(), dur: 220 });
@@ -1341,15 +1409,30 @@ function commit({ r, c, dir }) {
 
   const before = state;
   const color = before.c[r * before.w + c];
+  const filledBefore = before.filled || 0;
+  const poppedAnchor =
+    m.res === 'pop' &&
+    !!before.fixed &&
+    (before.fixed[m.r * before.w + m.c] === 1 || before.fixed[m.br * before.w + m.bc] === 1);
   history.push({ state, moves, pops, m, color });
   if (history.length > 300) history.shift();
 
   state = applyMove(state, m);
   moves++;
   if (m.res === 'pop') pops++;
+  const berthDone = (state.filled || 0) !== filledBefore;
   updateHud();
   updateUndo();
   setHint(baseHint());
+  if (berthDone) {
+    const left = berthsLeft(state);
+    setHint(
+      left
+        ? `停好一个泊位，还剩 ${left} 个。`
+        : '泊位都停好了——把剩下的颜色清完就通关。',
+      2600,
+    );
+  }
 
   // 读屏播报这一步的结果（鼠标 / 键盘都走这里）
   if (m.res === 'pop') {
@@ -1358,11 +1441,15 @@ function commit({ r, c, dir }) {
         ? Math.ceil(countColor(state, level.targetColor) / 2)
         : Math.ceil(countBlocks(state) / 2);
     announce(
-      `两块${COLOR_NAMES[color - 1]}块撞在一起消失了${pairsLeft ? `，还剩 ${pairsLeft} 对` : ''}。`,
+      poppedAnchor
+        ? `钉子被${COLOR_NAMES[color - 1]}块撞掉了${pairsLeft ? `，还剩 ${pairsLeft} 对` : ''}。`
+        : `两块${COLOR_NAMES[color - 1]}块撞在一起消失了${pairsLeft ? `，还剩 ${pairsLeft} 对` : ''}。`,
     );
   } else {
     announce(
-      `${COLOR_NAMES[color - 1]}块滑到第 ${m.tr + 1} 行第 ${m.tc + 1} 列，用了 ${moves} 步。`,
+      `${COLOR_NAMES[color - 1]}块滑到第 ${m.tr + 1} 行第 ${m.tc + 1} 列，用了 ${moves} 步${
+        berthDone ? '，停进了一个泊位' : ''
+      }。`,
     );
   }
 
@@ -1417,14 +1504,26 @@ function playAnim(next) {
       return;
     }
     requestDraw();
-    if (next.kind === 'rewind') return;
+    if (next.kind === 'rewind' || next.kind === 'shake') return;
     if (won || failed) return;
     if (isGoal(state, level)) {
       showWin();
       return;
     }
-    if (moves >= level.limit) showFail();
-    else maybeCheckDead();
+    if (moves >= level.limit) {
+      showFail();
+      return;
+    }
+    if (berthsLeft(state) > 0 && countBlocks(state) === 0) {
+      setHint(
+        '棋盘清空了，但还有泊位没停——撤销一步，把对应颜色停进标记格。',
+        0,
+        'warn',
+      );
+      announce('棋盘清空了，但还有泊位没停。撤销一步，把对应颜色停进标记格。');
+      return;
+    }
+    maybeCheckDead();
   }, next.dur + 16);
 }
 
@@ -1503,6 +1602,11 @@ attachInput(canvas, {
   onCommit: (g) => {
     drag = null;
     commit(g);
+    requestDraw();
+  },
+  onPinned: (g) => {
+    drag = null;
+    pinnedFeedback(g.r, g.c);
     requestDraw();
   },
 });
@@ -1628,6 +1732,12 @@ attachKeyboard(canvas, {
     if (!sel || quiet) return;
     const v = at(state, sel.r, sel.c);
     const name = v > 0 ? COLOR_NAMES[v - 1] : '空';
+    if (v > 0 && isFixed(state, sel.r, sel.c)) {
+      announce(
+        `选中${name}块（被钉住），第 ${sel.r + 1} 行第 ${sel.c + 1} 列。这块拖不动，要用同色块撞它。`,
+      );
+      return;
+    }
     if (picked) {
       announce(
         `拿起${name}块，第 ${sel.r + 1} 行第 ${sel.c + 1} 列。按方向键滑出去，Esc 放下。`,
@@ -1642,7 +1752,8 @@ attachKeyboard(canvas, {
   },
   onInvalid: (g) => {
     commit(g);
-    announce('这个方向走不动，换一个方向试试。');
+    if (!isFixed(state, g.r, g.c)) announce('这个方向走不动，换一个方向试试。');
+    requestDraw();
   },
 });
 
@@ -1743,9 +1854,6 @@ resize();
 requestDraw();
 
 // 只在本地开发环境暴露调试钩子；生产（GitHub Pages）完全不定义
-const isLocalHost =
-  ['localhost', '127.0.0.1', '::1', '[::1]'].includes(location.hostname) ||
-  location.protocol === 'file:';
 if (isLocalHost) {
   window.__zgz = {
     get level() {
@@ -1757,6 +1865,12 @@ if (isLocalHost) {
     levels: LEVELS,
     get state() {
       return state;
+    },
+    get fixed() {
+      return state.fixed ? Array.from(state.fixed) : null;
+    },
+    get lastColor() {
+      return state.lastColor || 0;
     },
     get layout() {
       return layout;
@@ -1822,6 +1936,9 @@ if (isLocalHost) {
     closeLevels,
     renderLevelGrid,
     isLevelUnlocked,
+    get devUnlock() {
+      return DEV_UNLOCK;
+    },
     save,
     get replay() {
       return replay;
