@@ -30,6 +30,7 @@ const elGoalText = document.getElementById('goal-text');
 const elMoves = document.getElementById('moves');
 const elMovesFill = document.getElementById('moves-fill');
 const elMovesPar = document.getElementById('moves-par');
+const elMovesGoal = document.getElementById('moves-goal');
 const elHint = document.getElementById('hint');
 const elWin = document.getElementById('win');
 const elWinKicker = document.getElementById('win-kicker');
@@ -142,7 +143,7 @@ let hintTimer = 0;
 let winCountTimer = 0;
 let pops = 0;
 let pendingUndo = false;
-// 本次尝试已经点到第几层提示（0 没点过 / 1 小提示 / 2 下一步 / 3 完整解法）
+// 本次尝试已经点到第几层提示（0 没点过 / 1 小提示 / 2 一条路线的首步 / 3 完整解法）
 let hintStep = 0;
 // 本次尝试已经被提示扣掉几颗星（0–2）；重开或重新进入关卡时归零
 let hintUsed = 0;
@@ -198,10 +199,32 @@ function updateHud() {
   elMovesFill.classList.toggle('over-par', moves > level.par);
   elMovesFill.classList.toggle('tight', moves >= level.limit - 1);
   elMovesPar.style.left = `${((level.par / level.limit) * 100).toFixed(1)}%`;
-  elMoves.title = `已用 ${moves} 步 · 上限 ${level.limit} 步 · ${level.par} 步内得 3★`;
+  // 三星线下方常驻当前星级目标：过了 par 就切成 2★ 线，过了 2★ 线只剩 1★。
+  const twoLine = twoStarLine(level);
+  let aim;
+  let aimState = '';
+  if (moves <= level.par) {
+    aim = `3★ ≤ ${level.par} 步`;
+  } else if (moves <= twoLine) {
+    aim = `2★ ≤ ${twoLine} 步`;
+    aimState = 'lost3';
+  } else {
+    aim = `1★ · 上限 ${level.limit} 步`;
+    aimState = 'lost2';
+  }
+  elMovesGoal.textContent = aim;
+  elMovesGoal.classList.toggle('lost3', aimState === 'lost3');
+  elMovesGoal.classList.toggle('lost2', aimState === 'lost2');
+  const aimA11y =
+    aimState === 'lost3'
+      ? `三星线已过，二星线 ${twoLine} 步内`
+      : aimState === 'lost2'
+        ? `只剩一星，上限 ${level.limit} 步`
+        : `三星目标 ${level.par} 步内`;
+  elMoves.title = `已用 ${moves} 步 · 上限 ${level.limit} 步 · ${aimA11y}`;
   elMoves.setAttribute(
     'aria-label',
-    `已用 ${moves} 步，上限 ${level.limit} 步，${level.par} 步内可得三星`,
+    `已用 ${moves} 步，上限 ${level.limit} 步，${aimA11y}`,
   );
   updateBoardA11y();
 }
@@ -281,7 +304,8 @@ function countColor(st, color) {
 
 // ---- 提示阶梯 ----
 // 第 1 次：只给方向性的小提示，免费。
-// 第 2 次：给出「下一步」，扣 1★。
+// 第 2 次：给出一条可行路线的首步，扣 1★。关卡允许多条 par 路线，
+// 预置解法只是其中一条，所以文案不写「唯一 / 最优」。
 // 第 3 次：打开完整解法，再扣 1★。
 // 扣分只对「本次尝试」生效（最多 2★）：重开或重新进入关卡都会回到 0，
 // 所以用过提示也能靠重打把三星拿回来。
@@ -307,8 +331,8 @@ function updateHintButton() {
     btnHint.title = `提示：第一次只给方向性的小提示，不扣星${paid}`;
     btnHint.setAttribute('aria-label', `提示，第一次不扣星${paid}`);
   } else if (hintStep === 1) {
-    btnHint.title = `再看提示：会指出下一步怎么走，扣 1 星${paid}`;
-    btnHint.setAttribute('aria-label', `再看提示，会指出下一步，扣一星${paid}`);
+    btnHint.title = `再看提示：会给出一条可行路线的首步，扣 1 星${paid}`;
+    btnHint.setAttribute('aria-label', `再看提示，会给出一条可行路线的首步，扣一星${paid}`);
   } else {
     btnHint.title = `看解法：完整走法，再扣 1 星${paid}`;
     btnHint.setAttribute('aria-label', `看完整解法，再扣一星${paid}`);
@@ -348,10 +372,11 @@ function hintOverview() {
 
 // 第 1 层：只给方向，不给坐标
 function showHintTier1() {
-  setHint(`${hintOverview()}再点一次「再看提示」会指出下一步（扣 1★）。`, 12000);
+  setHint(`${hintOverview()}再点一次「再看提示」会给出一条可行路线（扣 1★）。`, 12000);
 }
 
-// 第 2 层：给出下一步的具体走法（仍然只一步）
+// 第 2 层：给出一条可行路线的首步（仍然只一步）。
+// 这不是唯一解：玩家按别的顺序走，只要步数在上限内同样能通关。
 function showHintTier2() {
   const first = solutionSteps()[0];
   const prefix = moves
@@ -362,7 +387,7 @@ function showHintTier2() {
     return;
   }
   setHint(
-    `下一步：${first}。${prefix}再点一次「看解法」会列出完整走法（再扣 1★）。`,
+    `一条可行路线：${first}。${prefix}再点一次「看解法」会列出完整走法（再扣 1★）。`,
     14000,
   );
 }
