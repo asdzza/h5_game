@@ -14,6 +14,8 @@
   --text: #e9eefb;
   --muted: rgba(233, 238, 251, 0.55);
   --accent: #7dd3fc;
+  --mark-berth: #7dd3fc;
+  --mark-berth-bg: rgba(125, 211, 252, 0.16);
   --surface: rgba(255, 255, 255, 0.06);
   --surface-hover: rgba(255, 255, 255, 0.1);
   --surface-faint: rgba(255, 255, 255, 0.025);
@@ -53,6 +55,8 @@
   --text: #101a2c;
   --muted: rgba(16, 26, 44, 0.62);
   --accent: #0284c7;
+  --mark-berth: #0284c7;
+  --mark-berth-bg: rgba(2, 132, 199, 0.12);
   --surface: rgba(15, 23, 42, 0.045);
   --surface-hover: rgba(15, 23, 42, 0.085);
   --surface-faint: rgba(15, 23, 42, 0.025);
@@ -949,6 +953,45 @@ body {
   margin: 0 0 14px;
 }
 
+/* 标题页的三枚标记图例：图标 + 名字 + 一句话，和盘面符号一一对应 */
+.mark-strip {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 8px 4px 7px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  border: 1px solid var(--hint-line);
+  border-radius: 12px;
+  background: var(--hint-bg);
+}
+
+.mark-strip li {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.mark-strip .mark {
+  margin-bottom: 1px;
+}
+
+.mark-name {
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--rules-strong);
+  white-space: nowrap;
+}
+
+.mark-use {
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 .title-progress {
   margin: 0 0 16px !important;
   font-size: 12px !important;
@@ -973,6 +1016,10 @@ body {
   }
   .title-rules {
     margin-bottom: 10px;
+  }
+  .mark-strip {
+    margin-bottom: 10px;
+    padding: 6px 4px 5px;
   }
   .title-progress {
     margin-bottom: 12px !important;
@@ -1064,6 +1111,107 @@ body {
 }
 
 .rules b {
+  color: var(--rules-strong);
+  font-weight: 650;
+}
+
+/* 盘面三种标记的小图示：钉帽 / 彩色虚线泊位 / 右上角方格旗 */
+.mark {
+  position: relative;
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  vertical-align: -4px;
+}
+
+.mark-anchor {
+  border-radius: 50%;
+  background: #1f2937;
+  box-shadow: inset 0 0 0 1.5px rgba(226, 232, 240, 0.52);
+}
+
+.mark-anchor::before,
+.mark-anchor::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 10px;
+  height: 1.5px;
+  border-radius: 1px;
+  background: rgba(241, 245, 249, 0.92);
+  transform: translate(-50%, -50%);
+}
+
+.mark-anchor::after {
+  width: 1.5px;
+  height: 10px;
+}
+
+.mark-berth {
+  border: 2px dashed var(--mark-berth);
+  border-radius: 5px;
+  background: var(--mark-berth-bg);
+}
+
+.mark-berth::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 3.5px;
+  height: 3.5px;
+  border-radius: 50%;
+  background: var(--mark-berth);
+  transform: translate(-50%, -50%);
+}
+
+.mark-last {
+  border-radius: 4px;
+  background: #0f172a;
+}
+
+.mark-last::before {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 1.5px;
+  background: conic-gradient(#f8fafc 0 25%, #334155 0 50%, #f8fafc 0 75%, #334155 0);
+}
+
+.card .card-subhead {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: var(--accent);
+  text-align: left;
+}
+
+.mark-list {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  display: grid;
+  gap: 9px;
+  text-align: left;
+}
+
+.mark-list li {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--rules-text);
+}
+
+.mark-list .mark {
+  margin-top: 1px;
+}
+
+.mark-list b {
   color: var(--rules-strong);
   font-weight: 650;
 }
