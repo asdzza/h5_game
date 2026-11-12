@@ -127,22 +127,25 @@
           <li>看不清就用底部的「− 100% +」缩放棋盘；放大后拖动空白处可以移动视野。</li>
           <li>键盘也能玩：Tab 把焦点移到棋盘，方向键选块，空格拿起，再按方向键滑出去，Esc 放下。</li>
         </ul>
-        <p class="card-subhead">后期关卡的盘面标记</p>
-        <ul class="mark-list">
-          <li>
-            <span class="mark mark-anchor" aria-hidden="true"></span>
-            <span><b>钉子</b>：带钉帽，拖不动；异色被挡，同色撞上去一起消。</span>
-          </li>
-          <li>
-            <span class="mark mark-berth" aria-hidden="true"></span>
-            <span><b>泊位</b>：彩色虚线格，同色方块停进去就永久打勾；全部停满才通关。</span>
-          </li>
-          <li>
-            <span class="mark mark-last" aria-hidden="true"></span>
-            <span><b>最后一对</b>：右上角方格旗；该色只剩两块时，必须最后消。</span>
-          </li>
-        </ul>
         <p class="card-note">异色方块不会被推动，它们既是路障，也是下一对。</p>
+        <details class="rules-more">
+          <summary>后期规则：钉子 / 泊位 / 最后一对</summary>
+          <ul class="mark-list">
+            <li>
+              <span class="mark mark-anchor" aria-hidden="true"></span>
+              <span><b>钉子</b>：带钉帽，拖不动；异色被挡，同色撞上去一起消。</span>
+            </li>
+            <li>
+              <span class="mark mark-berth" aria-hidden="true"></span>
+              <span><b>泊位</b>：彩色虚线格，同色方块停进去就永久打勾；全部停满才通关。</span>
+            </li>
+            <li>
+              <span class="mark mark-last" aria-hidden="true"></span>
+              <span><b>最后一对</b>：右上角方格旗；该色只剩两块时，必须最后消。</span>
+            </li>
+          </ul>
+          <p class="card-note">第一次遇到时会在关卡里单独说明，不用现在背下来。</p>
+        </details>
         <button id="intro-ok" type="button">我明白了！</button>
       </div>
     </div>
@@ -170,9 +173,21 @@
       <div class="card" role="dialog" aria-modal="true" aria-labelledby="fail-title">
         <p class="card-kicker">步数用完</p>
         <h2 id="fail-title">差一点</h2>
-        <p>撤销一步就能接着走，步数会退回来。</p>
+        <p id="fail-diagnosis" class="fail-diagnosis"></p>
+        <p id="fail-tip" class="fail-tip" role="status" aria-live="polite"></p>
+        <button id="fail-rewind" type="button" hidden>回到上一步（还有救）</button>
         <button id="fail-undo" type="button">撤销一步</button>
         <button id="fail-restart" class="ghost" type="button">重开本关</button>
+      </div>
+    </div>
+
+    <div id="mechanic" class="overlay hidden">
+      <div class="card mechanic-card" role="dialog" aria-modal="true" aria-labelledby="mechanic-title">
+        <p class="card-kicker" id="mechanic-kicker">新规则</p>
+        <h2 id="mechanic-title">钉子</h2>
+        <div id="mechanic-body" class="mechanic-body"></div>
+        <button id="mechanic-ok" type="button">开始这一关</button>
+        <p class="card-note">以后点右上角「?」可以再看全部规则。</p>
       </div>
     </div>
 

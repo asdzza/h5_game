@@ -891,7 +891,7 @@ export const LEVELS = [
     stage: 4,
     name: '小结·最后一对',
     goal: 'clear',
-    limit: 11,
+    limit: 12,
     par: 9,
     teach:
       'S4 小结：五色、十二块、四道墙。黄色那一对是「最后一对」——可以先挪去当刹车，但必须留到整盘最后一步才消。',
@@ -1000,7 +1000,7 @@ export const LEVELS = [
     stage: 5,
     name: '两段路',
     goal: 'clear',
-    limit: 11,
+    limit: 12,
     par: 9,
     teach:
       '棋盘被分成上下两段：紫色有一格泊位（盘面中间的紫色虚线格），紫块要停进去一次才算完成；同一面墙只够一块用，谁先占用，另一段就少一个停靠点。',

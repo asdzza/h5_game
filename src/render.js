@@ -598,6 +598,28 @@ export function draw(ctx, layout, state, fx = {}) {
     }
   }
 
+  // 鼠标悬停：给“这一块能拖”一个明确的轮廓；钉子用琥珀色提示拖不动
+  if (fx.hover) {
+    const hv = state.c[fx.hover.r * w + fx.hover.c];
+    if (hv > 0) {
+      const pad = cell * 0.07;
+      ctx.save();
+      ctx.strokeStyle = fx.hover.fixed ? '#f59e0b' : t.ring;
+      ctx.globalAlpha = 0.85;
+      ctx.lineWidth = Math.max(1.5, cell * 0.045);
+      roundRect(
+        ctx,
+        bx + fx.hover.c * cell + pad,
+        by + fx.hover.r * cell + pad,
+        cell - pad * 2,
+        cell - pad * 2,
+        cell * 0.2,
+      );
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
   // 滑动 + 停靠挤压
   if (anim && anim.kind === 'slide') {
     const { m } = anim;

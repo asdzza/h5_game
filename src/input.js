@@ -29,6 +29,32 @@ export function attachInput(canvas, api) {
     return dy >= 0 ? 'D' : 'U';
   };
 
+  // 鼠标悬停：桌面端评委用鼠标，先让“这块能拖”看得出来，
+  // 再决定要不要按下去。触屏没有 hover，不会走到这里。
+  const hoverAt = (e) => {
+    if (e.pointerType !== 'mouse' || drag) return;
+    if (!api.onHover) return;
+    const hit = cellAt(e.clientX, e.clientY);
+    if (!hit) {
+      api.onHover(null);
+      return;
+    }
+    const st = api.getState();
+    if (st.c[hit.r * st.w + hit.c] <= 0) {
+      api.onHover(null);
+      return;
+    }
+    api.onHover({ r: hit.r, c: hit.c, fixed: isFixed(st, hit.r, hit.c) });
+  };
+
+  canvas.addEventListener('pointermove', hoverAt);
+  canvas.addEventListener('pointerleave', () => {
+    if (api.onHover) api.onHover(null);
+  });
+  canvas.addEventListener('pointerdown', () => {
+    if (api.onHover) api.onHover(null);
+  });
+
   const update = (e) => {
     if (!drag) return;
     const dx = e.clientX - drag.startX;
