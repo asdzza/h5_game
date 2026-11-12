@@ -674,7 +674,17 @@ function showWin() {
   const lines = [parLine];
   if (bestNow < moves) lines.push(`你的最好成绩：${bestNow} 步。`);
   if (penalty > 0) lines.push(`本次用了提示，扣 ${penalty}★；重开重打可以把星拿回来。`);
+  // 首次通关第 1 关时补一句「撤销退还步数」——intro 卡只在点「?」时出现，
+  // 这条关键信息在玩家完成第一个完整循环时即时补上
+  if (levelIndex === 0 && best == null)
+    lines.push('走错可以点底部「撤销」，步数会退回来。');
   if (stageEndNow) lines.push(`${stage.blurb}。`);
+  // 50 关全部通关（每关至少 1★）时给出总收束；最后一关的 kicker 直接换成「全部通关」
+  if (LEVELS.every((lv) => storedStars(lv) > 0)) {
+    const totalStars = LEVELS.reduce((sum, lv) => sum + storedStars(lv), 0);
+    lines.push(`50 关全部通关，共获 ${totalStars} / ${LEVELS.length * 3} ★。`);
+    if (levelIndex === LEVELS.length - 1) elWinKicker.textContent = '全部通关';
+  }
   elWinSub.textContent = lines.join(' ');
 
   btnNext.textContent = levelIndex === LEVELS.length - 1 ? '选关' : '下一关';
@@ -1306,14 +1316,21 @@ function maybeShowMechanic() {
   for (const el of [elTitle, elIntro, elLevels, elWin, elFail, elSolution]) {
     if (el && !el.classList.contains('hidden')) return;
   }
-  const unseen = levelMechanics(level).filter((m) => !mechSeen[m] && MECHANICS[m]);
-  if (!unseen.length) return;
+  // 「先学后组合」：组合卡只算「提及」(1)，单机制关才把该机制标为「已教学」(2)。
+  // 某机制若只在组合卡里被提及过（例如直跳 #50），首次进入它的单机制关时仍补一张专属卡。
+  // 旧存档的 true 视为「已教学」，行为与旧版一致。
+  const mechs = levelMechanics(level).filter((m) => MECHANICS[m]);
+  if (!mechs.length) return;
+  const teachable = mechs.filter(
+    (m) => !mechSeen[m] || (mechSeen[m] === 1 && mechs.length === 1),
+  );
+  if (!teachable.length) return;
 
-  const multi = unseen.length > 1;
-  elMechanicKicker.textContent = multi ? '新规则 · 一次讲清' : MECHANICS[unseen[0]].kicker;
-  elMechanicTitle.textContent = multi ? '这一关的新规则' : MECHANICS[unseen[0]].title;
+  const multi = teachable.length > 1;
+  elMechanicKicker.textContent = multi ? '新规则 · 一次讲清' : MECHANICS[teachable[0]].kicker;
+  elMechanicTitle.textContent = multi ? '这一关的新规则' : MECHANICS[teachable[0]].title;
   elMechanicBody.replaceChildren(
-    ...unseen.map((m) => {
+    ...teachable.map((m) => {
       const meta = MECHANICS[m];
       const box = document.createElement('section');
       if (multi) {
@@ -1329,13 +1346,13 @@ function maybeShowMechanic() {
       return box;
     }),
   );
-  unseen.forEach((m) => {
-    mechSeen[m] = true;
+  teachable.forEach((m) => {
+    mechSeen[m] = mechs.length === 1 ? 2 : 1;
   });
   saveMechSeen();
   elMechanic.classList.remove('hidden');
   btnMechanicOk.focus({ preventScroll: true });
-  announce(`${elMechanicTitle.textContent}。${unseen.map((m) => MECHANICS[m].lines.join('')).join('')}`);
+  announce(`${elMechanicTitle.textContent}。${teachable.map((m) => MECHANICS[m].lines.join('')).join('')}`);
 }
 
 function isLevelUnlocked(index) {
