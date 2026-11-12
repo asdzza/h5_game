@@ -727,6 +727,20 @@ body {
   text-align: left;
 }
 
+/* 解法面板的「思路」段：nudge 叙述作引言，与下面的逐步走法区分。
+   配色沿用提示阶梯的琥珀「解法」体系，视觉上仍属于同一系统。 */
+.solution-idea {
+  margin: 0 0 12px !important;
+  padding: 10px 12px;
+  border-left: 3px solid var(--solution-line);
+  border-radius: 0 8px 8px 0;
+  background: var(--solution-bg);
+  font-size: 13px !important;
+  line-height: 1.7;
+  text-align: left;
+  color: var(--rules-text);
+}
+
 .solution-list {
   flex: 1 1 auto;
   min-height: 0;
