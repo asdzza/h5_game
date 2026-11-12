@@ -39,6 +39,12 @@ const elWinSub = document.getElementById('win-sub');
 const elWinCard = elWin.querySelector('.card');
 const elStars = document.getElementById('stars');
 const elFail = document.getElementById('fail');
+const elFailDiagnosis = document.getElementById('fail-diagnosis');
+const elFailTip = document.getElementById('fail-tip');
+const elMechanic = document.getElementById('mechanic');
+const elMechanicKicker = document.getElementById('mechanic-kicker');
+const elMechanicTitle = document.getElementById('mechanic-title');
+const elMechanicBody = document.getElementById('mechanic-body');
 const elIntro = document.getElementById('intro');
 const elTitle = document.getElementById('title');
 const elTitleProgress = document.getElementById('title-progress');
@@ -66,6 +72,8 @@ const btnNext = document.getElementById('next');
 const btnAgain = document.getElementById('again');
 const btnFailUndo = document.getElementById('fail-undo');
 const btnFailRestart = document.getElementById('fail-restart');
+const btnFailRewind = document.getElementById('fail-rewind');
+const btnMechanicOk = document.getElementById('mechanic-ok');
 const btnZoomOut = document.getElementById('zoom-out');
 const btnZoomFit = document.getElementById('zoom-fit');
 const btnZoomIn = document.getElementById('zoom-in');
@@ -76,12 +84,13 @@ const TITLE_KEY = 'zgz.seenTitle.v1';
 const SAVE_KEY = 'zgz.save.v2';
 const THEME_KEY = 'zgz.theme';
 const ZOOM_KEY = 'zgz.zoom.v1';
-// 本地开发 / 预览环境默认全关解锁，方便逐关测试；?locked=1 可切回真实的逐关解锁流程
+const MECH_KEY = 'zgz.mech.v1';
+// 默认 50 关全部可选：评委不一定逐关打通，后期关卡的巧思必须能被直接看到。
+// ?locked=1 恢复真实的逐关解锁流程（用于体验成长曲线 / 回归测试）。
+const UNLOCK_ALL = !new URLSearchParams(location.search).has('locked');
 const isLocalHost =
   ['localhost', '127.0.0.1', '::1', '[::1]'].includes(location.hostname) ||
   location.protocol === 'file:';
-const DEV_UNLOCK =
-  isLocalHost && !new URLSearchParams(location.search).has('locked');
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
 const COLOR_NAMES = ['红', '蓝', '绿', '黄', '紫'];
 const HITSTOP = 60;
@@ -94,6 +103,43 @@ const STAGES = {
   4: { title: '阶段 4 · 双刹车耦合', blurb: '一次停靠，同时给后面留路' },
   5: { title: '阶段 5 · 终局精算', blurb: '容错只有一两步' },
 };
+
+// 新规则卡：第一次遇到时讲一次，之后靠关卡里的 teach 句和「?」复习。
+// 规则描述只讲“可观察的行为”，不写坐标、不写这关的解法。
+const MECHANICS = {
+  anchor: {
+    kicker: '新规则 · 钉子',
+    title: '钉子',
+    lines: [
+      '带钉帽的方块拖不动，还会像墙一样挡住别的颜色。',
+      '只有同色块撞上去，钉子才会连同两块一起消失。',
+    ],
+  },
+  berth: {
+    kicker: '新规则 · 泊位',
+    title: '泊位',
+    lines: [
+      '棋盘上的彩色虚线格是泊位。',
+      '同色方块停进去一次就打勾；所有泊位都打勾才算通关。方块之后离开，勾也不会掉。',
+    ],
+  },
+  lastPair: {
+    kicker: '新规则 · 最后一对',
+    title: '最后一对',
+    lines: [
+      '带方格旗的颜色必须留到最后。',
+      '当它只剩两块、场上还有别的颜色时，这一撞不合法；可以先把它当刹车挪来挪去。',
+    ],
+  },
+  goalColor: {
+    kicker: '新目标 · 只清一种颜色',
+    title: '目标变了',
+    lines: [
+      '这一关不用清空全场，只清指定的颜色。',
+      '别的颜色消不掉，但可以推开、当刹车。它们被消掉也不算目标。',
+    ],
+  },
+};
 const metaTheme = document.querySelector('meta[name="theme-color"]');
 
 // 首屏脚本已经把 data-theme 写进 <html>，这里只接管状态与按钮
@@ -105,6 +151,23 @@ function readSave() {
     return raw && typeof raw === 'object' ? raw : {};
   } catch {
     return {};
+  }
+}
+
+function readMechSeen() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(MECH_KEY) || '{}');
+    return raw && typeof raw === 'object' ? raw : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveMechSeen() {
+  try {
+    localStorage.setItem(MECH_KEY, JSON.stringify(mechSeen));
+  } catch {
+    /* 隐私模式忽略 */
   }
 }
 
@@ -149,6 +212,13 @@ let hintStep = 0;
 let hintUsed = 0;
 let rafId = 0;
 let currentCell = null;
+// 鼠标悬停的格子：桌面端用来提示“这块能拖 / 这块钉死了”
+let hover = null;
+// 失败诊断：找到“从哪一步开始已经赢不了”，让玩家一键退回去
+let failJob = 0;
+let failSafeStep = -1;
+// 新规则卡：按机制记录是否已经讲过，避免每次进关都弹
+let mechSeen = readMechSeen();
 // 键盘选中框：{ r, c, picked }，只在键盘操作时存在
 let kbd = null;
 let srFlip = false;
@@ -166,7 +236,8 @@ function setHint(text, revertAfter = 0, tone = '') {
   clearTimeout(hintTimer);
   hintTimer = 0;
   elHint.textContent = text;
-  elHint.classList.toggle('is-warn', tone ? tone === 'warn' : deadNow);
+  const lowMoves = moves > 0 && level.limit - moves <= 1;
+  elHint.classList.toggle('is-warn', tone ? tone === 'warn' : deadNow || lowMoves);
   if (revertAfter) {
     hintTimer = setTimeout(() => {
       hintTimer = 0;
@@ -179,6 +250,11 @@ function baseHint() {
   const pen = penaltyLine();
   if (deadNow) {
     return `现在的局面可能已经清不完了——撤销一步，或者重开还有救。${pen ? ` ${pen}` : ''}`;
+  }
+  const left = level.limit - moves;
+  // 临近上限时，把「还剩几步」放在最前面：这是比教学句更重要的信息
+  if (moves > 0 && left > 0 && left <= 2) {
+    return `只剩 ${left} 步，再走错就用完——撤销不扣步数。${pen ? ` ${pen}` : ''}`;
   }
   return `${level.teach}（${level.par} 步内 3★）${pen ? ` ${pen}` : ''}`;
 }
@@ -226,6 +302,7 @@ function updateHud() {
     'aria-label',
     `已用 ${moves} 步，上限 ${level.limit} 步，${aimA11y}`,
   );
+  updateGoal();
   updateBoardA11y();
 }
 
@@ -268,26 +345,38 @@ function updateBoardA11y() {
   );
 }
 
+function remainingPairs(st, lv) {
+  const n = lv.goal === 'color' ? countColor(st, lv.targetColor) : countBlocks(st);
+  return Math.ceil(n / 2);
+}
+
 function updateGoal() {
   const berthCount = state.berths ? state.berths.length : 0;
-  const berthSuffix = berthCount ? ` · ${berthCount} 个泊位` : '';
+  const berthsDone = berthCount
+    ? berthCount - berthsLeft(state)
+    : 0;
+  const berthSuffix = berthCount ? ` · 泊位 ${berthsDone}/${berthCount}` : '';
+  // 可见的进步：目标旁边常驻「还差几对」，每走一步都会变
+  const pairs = remainingPairs(state, level);
+  const pairSuffix = pairs > 0 ? ` · 还差 ${pairs} 对` : ' · 已清完';
+  const pairA11y = pairs > 0 ? `还差 ${pairs} 对` : '目标已清完';
   if (level.goal === 'color') {
     const name = COLOR_NAMES[level.targetColor - 1] || '目标';
     const color = PALETTE[level.targetColor - 1]?.base || '#ef4444';
     elGoal.classList.add('is-color');
     elGoal.style.setProperty('--goal-color', color);
-    elGoalText.textContent = `只清${name}块${berthSuffix}`;
+    elGoalText.textContent = `只清${name}块${pairSuffix}${berthSuffix}`;
     elGoal.setAttribute(
       'aria-label',
-      `本关目标：只消除${name}色方块${berthCount ? `，并把 ${berthCount} 个方块停进对应泊位` : ''}`,
+      `本关目标：只消除${name}色方块，${pairA11y}${berthCount ? `，并把 ${berthCount} 个方块停进对应泊位，已完成 ${berthsDone} 个` : ''}`,
     );
   } else {
     elGoal.classList.remove('is-color');
     elGoal.style.removeProperty('--goal-color');
-    elGoalText.textContent = `清空全场${berthSuffix}`;
+    elGoalText.textContent = `清空全场${pairSuffix}${berthSuffix}`;
     elGoal.setAttribute(
       'aria-label',
-      `本关目标：清空全场${berthCount ? `，并把 ${berthCount} 个方块停进对应泊位` : ''}`,
+      `本关目标：清空全场，${pairA11y}${berthCount ? `，并把 ${berthCount} 个方块停进对应泊位，已完成 ${berthsDone} 个` : ''}`,
     );
   }
 }
@@ -353,7 +442,7 @@ function hintOverview() {
   }).length;
 
   const goalLine = isColor
-    ? `还要清 ${pairsLeft} 对${name}块`
+    ? `还要清 ${pairsLeft} 对${name}块（别的颜色消了也不算）`
     : `场上还剩 ${pairsLeft} 对`;
   const berthLeft = berthsLeft(state);
   const berthLine = berthLeft ? `；还有 ${berthLeft} 个泊位没停` : '';
@@ -555,10 +644,122 @@ function showFail() {
   failed = true;
   drag = null;
   resetDeadCheck();
+  failSafeStep = -1;
+  const pairs = remainingPairs(state, level);
+  const berths = berthsLeft(state);
+  const targetName = COLOR_NAMES[level.targetColor - 1] || '目标';
+  const goalWord =
+    level.goal === 'color'
+      ? pairs > 0
+        ? `还差 ${pairs} 对${targetName}块没消。`
+        : `${targetName}块已经清完。`
+      : pairs > 0
+        ? `还差 ${pairs} 对没消。`
+        : '方块已经清空。';
+  elFailDiagnosis.textContent = berths > 0 ? `${goalWord} 还有 ${berths} 个泊位没停。` : goalWord;
+  elFailTip.textContent = '正在找还能救回来的一步…';
+  btnFailRewind.hidden = true;
+  btnFailRewind.disabled = true;
   elFail.classList.remove('hidden');
   btnFailUndo.focus({ preventScroll: true });
-  setHint('步数用完了。撤销一步可以接着走，步数会退回来。');
+  setHint('步数用完了。先看还差什么，再决定退回到哪一步。');
   audio.play('fail');
+  announce(`${elFailDiagnosis.textContent} 正在找还能救回来的一步。`);
+  diagnoseFail();
+}
+
+// 失败诊断：从最近的一步往前找，找到「这一步之后还能赢」的最后存档点。
+// 只把快照丢给 Worker，主线程不跑搜索；找不到就退化成“撤销一步 / 重开”。
+function failDiagnosisFallback() {
+  if (!failed) return;
+  btnFailRewind.hidden = true;
+  elFailTip.textContent = '撤销一步可以接着走；如果很早就走错了，重开本关更省时间。';
+}
+
+function diagnoseFail() {
+  const job = ++failJob;
+  if (deadBroken || typeof Worker === 'undefined') {
+    failDiagnosisFallback();
+    return;
+  }
+  const w = ensureDeadWorker();
+  if (!w) {
+    failDiagnosisFallback();
+    return;
+  }
+  const states = history.map((h) => ({
+    w: h.state.w,
+    h: h.state.h,
+    c: Array.from(h.state.c),
+    fixed: h.state.fixed ? Array.from(h.state.fixed) : null,
+    lastColor: h.state.lastColor || 0,
+    berths: h.state.berths ? h.state.berths.map((b) => [b.i, b.color]) : null,
+    filled: h.state.filled || 0,
+    budget: Math.max(0, level.limit - h.moves),
+  }));
+  try {
+    w.postMessage({
+      type: 'diagnose',
+      id: job,
+      level: { goal: level.goal, targetColor: level.targetColor },
+      states,
+    });
+  } catch {
+    failDiagnosisFallback();
+  }
+}
+
+function onFailDiagnosis(d) {
+  if (!failed || d.id !== failJob) return;
+  if (!(d.index >= 0) || !history[d.index]) {
+    elFailTip.textContent =
+      '这局从很早开始就走进了死路。重开本关、换一条开场路线更省时间。';
+    btnFailRewind.hidden = true;
+    return;
+  }
+  failSafeStep = d.index;
+  const step = history[d.index].moves;
+  if (step >= moves - 1) {
+    // 最后一步走错：撤销一步就是最优解，不再多放一个重复按钮
+    btnFailRewind.hidden = true;
+    elFailTip.textContent = '最后一步走错了——按「撤销一步」退回去，换一种走法。';
+    return;
+  }
+  btnFailRewind.hidden = false;
+  btnFailRewind.disabled = false;
+  btnFailRewind.textContent = `回到第 ${step} 步（还有救）`;
+  elFailTip.textContent = `第 ${step} 步之后就走进了死路。退回到那里，还有 ${
+    level.limit - step
+  } 步可以换一种走法。`;
+  announce(`第 ${step} 步之后就走进了死路。可以回到第 ${step} 步重试。`);
+}
+
+// 一键退回到“最后还能赢”的存档点：比连点撤销便宜，也比直接重开保留更多进度
+function rewindToStep(step) {
+  if (!(step >= 0) || step >= history.length) return;
+  const target = history[step];
+  state = target.state;
+  moves = target.moves;
+  pops = target.pops;
+  history = history.slice(0, step);
+  failJob++;
+  failSafeStep = -1;
+  failed = false;
+  pendingUndo = false;
+  kbd = null;
+  elFail.classList.add('hidden');
+  cancelAnim();
+  resetDeadCheck();
+  updateHud();
+  updateUndo();
+  setHint(
+    `回到第 ${step} 步——从这里换一种走法，还剩 ${level.limit - moves} 步。`,
+    6000,
+  );
+  announce(`回到第 ${step} 步，还剩 ${level.limit - moves} 步。`);
+  audio.play('rewind');
+  requestDraw();
+  canvas.focus({ preventScroll: true });
 }
 
 // ---- 最优解回放（结算页内的小棋盘，独立于主棋盘：不碰步数 / 历史 / 存档 / 星级） ----
@@ -751,8 +952,12 @@ function resetDeadCheck() {
 }
 
 function onDeadReply(ev) {
-  deadBusy = false;
   const d = ev.data;
+  if (d && d.type === 'diagnose') {
+    onFailDiagnosis(d);
+    return;
+  }
+  deadBusy = false;
   if (deadQueued && deadWorker) {
     const next = deadQueued;
     deadQueued = null;
@@ -784,6 +989,7 @@ function ensureDeadWorker() {
       deadWorker = null;
       deadBusy = false;
       deadQueued = null;
+      failDiagnosisFallback();
     };
   } catch {
     deadBroken = true;
@@ -835,7 +1041,9 @@ function titleSeen() {
 function updateTitleProgress() {
   const total = LEVELS.reduce((sum, lv) => sum + storedStars(lv), 0);
   const unlocked = LEVELS.filter((_, i) => isLevelUnlocked(i)).length;
-  elTitleProgress.textContent = `已获得 ${total} ★ · 已开放 ${unlocked} / ${LEVELS.length} 关`;
+  elTitleProgress.textContent = UNLOCK_ALL
+    ? `已获得 ${total} ★ · ${LEVELS.length} 关全部可选`
+    : `已获得 ${total} ★ · 已开放 ${unlocked} / ${LEVELS.length} 关`;
   const hasProgress = levelIndex > 0 || save.best[level.id] != null;
   btnTitleStart.textContent = hasProgress ? `继续第 ${level.id} 关` : '开始游戏';
 }
@@ -999,7 +1207,10 @@ function closeTitle({ showIntro = false } = {}) {
   }
   audio.play('ui');
   if (showIntro) openIntro();
-  else canvas.focus({ preventScroll: true });
+  else {
+    canvas.focus({ preventScroll: true });
+    maybeShowMechanic();
+  }
 }
 
 function introSeen() {
@@ -1024,12 +1235,67 @@ function closeIntro() {
   }
   audio.play('ui');
   canvas.focus({ preventScroll: true });
+  maybeShowMechanic();
+}
+
+// 从盘面特征识别本关会用到哪些规则：不依赖关卡 id，跳关也能正确补课
+function levelMechanics(lv) {
+  const rows = (lv.rows || []).join('');
+  const out = [];
+  if (/[a-e]/.test(rows)) out.push('anchor');
+  if (/[f-j]/.test(rows)) out.push('berth');
+  if (/[1-5]/.test(rows)) out.push('lastPair');
+  if (lv.goal === 'color') out.push('goalColor');
+  return out;
+}
+
+function closeMechanic() {
+  elMechanic.classList.add('hidden');
+  canvas.focus({ preventScroll: true });
+}
+
+function maybeShowMechanic() {
+  if (!elMechanic) return;
+  // 一次只弹一层：标题、玩法、选关、结算、失败时不抢焦点
+  for (const el of [elTitle, elIntro, elLevels, elWin, elFail, elSolution]) {
+    if (el && !el.classList.contains('hidden')) return;
+  }
+  const unseen = levelMechanics(level).filter((m) => !mechSeen[m] && MECHANICS[m]);
+  if (!unseen.length) return;
+
+  const multi = unseen.length > 1;
+  elMechanicKicker.textContent = multi ? '新规则 · 一次讲清' : MECHANICS[unseen[0]].kicker;
+  elMechanicTitle.textContent = multi ? '这一关的新规则' : MECHANICS[unseen[0]].title;
+  elMechanicBody.replaceChildren(
+    ...unseen.map((m) => {
+      const meta = MECHANICS[m];
+      const box = document.createElement('section');
+      if (multi) {
+        const h = document.createElement('h3');
+        h.textContent = meta.title;
+        box.appendChild(h);
+      }
+      for (const line of meta.lines) {
+        const p = document.createElement('p');
+        p.textContent = line;
+        box.appendChild(p);
+      }
+      return box;
+    }),
+  );
+  unseen.forEach((m) => {
+    mechSeen[m] = true;
+  });
+  saveMechSeen();
+  elMechanic.classList.remove('hidden');
+  btnMechanicOk.focus({ preventScroll: true });
+  announce(`${elMechanicTitle.textContent}。${unseen.map((m) => MECHANICS[m].lines.join('')).join('')}`);
 }
 
 function isLevelUnlocked(index) {
   const lv = LEVELS[index];
   if (!lv) return false;
-  if (DEV_UNLOCK) return true;
+  if (UNLOCK_ALL) return true;
   if (index === 0) return true;
   if (lv.id === level.id) return true;
   if (save.best[lv.id] != null) return true;
@@ -1150,12 +1416,14 @@ function renderLevelGrid() {
   elLevelSummary.append(
     '已获得 ',
     b,
-    ` 颗星 · 已开放 ${unlockedCount} / ${TOTAL_LEVELS} 关`,
+    UNLOCK_ALL
+      ? ` 颗星 · ${TOTAL_LEVELS} 关全部可选（推荐从第 1 关开始）`
+      : ` 颗星 · 已开放 ${unlockedCount} / ${TOTAL_LEVELS} 关`,
   );
-  if (DEV_UNLOCK) {
+  if (!UNLOCK_ALL) {
     const note = document.createElement('span');
     note.className = 'test-note';
-    note.textContent = ' · 测试模式：全部解锁';
+    note.textContent = ' · 逐关解锁';
     elLevelSummary.appendChild(note);
   }
 }
@@ -1179,6 +1447,7 @@ function selectLevel(index) {
   elLevels.classList.add('hidden');
   audio.play('ui');
   canvas.focus({ preventScroll: true });
+  maybeShowMechanic();
 }
 
 function syncSound() {
@@ -1360,10 +1629,14 @@ function loadLevel(index) {
   hintUsed = 0;
   clearTimeout(winCountTimer);
   winCountTimer = 0;
+  failJob++;
+  failSafeStep = -1;
   resetDeadCheck();
   cancelAnim();
   stopReplay({ focusBack: false });
   drag = null;
+  hover = null;
+  canvas.style.cursor = 'default';
   kbd = null;
   panX = 0;
   panY = 0;
@@ -1374,6 +1647,7 @@ function loadLevel(index) {
   elLevels.classList.add('hidden');
   elTitle.classList.add('hidden');
   closeSolution({ restoreFocus: false });
+  if (elMechanic) elMechanic.classList.add('hidden');
   elLevel.textContent = `第 ${level.id} 关`;
   elName.textContent = level.name;
   if (elLevelTag) elLevelTag.hidden = !level.challenge;
@@ -1458,6 +1732,19 @@ function commit({ r, c, dir }) {
       2600,
     );
   }
+  // 目标色关卡里消掉别的颜色，不减少目标：必须明确给一次“这不算数”的反馈，
+  // 否则玩家会把“我消了一对”误记成“我推进了一步”。
+  const offTarget =
+    m.res === 'pop' && level.goal === 'color' && color !== level.targetColor;
+  if (offTarget && !berthDone) {
+    const leftPairs = remainingPairs(state, level);
+    const targetName = COLOR_NAMES[level.targetColor - 1] || '目标';
+    setHint(
+      `消掉的是${COLOR_NAMES[color - 1]}块，不算目标——还差 ${leftPairs} 对${targetName}块。`,
+      3200,
+      'warn',
+    );
+  }
 
   // 读屏播报这一步的结果（鼠标 / 键盘都走这里）
   if (m.res === 'pop') {
@@ -1468,7 +1755,9 @@ function commit({ r, c, dir }) {
     announce(
       poppedAnchor
         ? `钉子被${COLOR_NAMES[color - 1]}块撞掉了${pairsLeft ? `，还剩 ${pairsLeft} 对` : ''}。`
-        : `两块${COLOR_NAMES[color - 1]}块撞在一起消失了${pairsLeft ? `，还剩 ${pairsLeft} 对` : ''}。`,
+        : `两块${COLOR_NAMES[color - 1]}块撞在一起消失了${
+            offTarget ? '（不是目标色，不计入目标）' : ''
+          }${pairsLeft ? `，还剩 ${pairsLeft} 对` : ''}。`,
     );
   } else {
     announce(
@@ -1567,6 +1856,8 @@ function undo() {
   moves = prev.moves;
   pops = prev.pops;
   kbd = null;
+  failJob++;
+  failSafeStep = -1;
   resetDeadCheck();
   if (failed) {
     failed = false;
@@ -1603,6 +1894,7 @@ function tick(now) {
   draw(ctx, layout, state, {
     drag,
     anim,
+    hover,
     now,
     theme,
     reduceMotion: REDUCE_MOTION,
@@ -1616,21 +1908,31 @@ attachInput(canvas, {
   getLayout: () => layout,
   getState: () => state,
   isBlocked: () => !!anim || won || failed,
+  onHover: (h) => {
+    if ((h && hover && h.r === hover.r && h.c === hover.c) || (!h && !hover)) return;
+    hover = h;
+    canvas.style.cursor = h ? (h.fixed ? 'not-allowed' : 'grab') : 'default';
+    requestDraw();
+  },
   onDrag: (d) => {
     drag = d;
+    canvas.style.cursor = d ? 'grabbing' : 'default';
     requestDraw();
   },
   onCancel: () => {
     drag = null;
+    canvas.style.cursor = 'default';
     requestDraw();
   },
   onCommit: (g) => {
     drag = null;
+    canvas.style.cursor = 'default';
     commit(g);
     requestDraw();
   },
   onPinned: (g) => {
     drag = null;
+    canvas.style.cursor = 'not-allowed';
     pinnedFeedback(g.r, g.c);
     requestDraw();
   },
@@ -1791,6 +2093,7 @@ elSolution.addEventListener('click', (e) => {
 btnRestart.addEventListener('click', () => {
   loadLevel(levelIndex);
   canvas.focus({ preventScroll: true });
+  maybeShowMechanic();
 });
 btnNext.addEventListener('click', () => {
   if (levelIndex === LEVELS.length - 1) {
@@ -1799,21 +2102,29 @@ btnNext.addEventListener('click', () => {
   } else {
     loadLevel(levelIndex + 1);
     canvas.focus({ preventScroll: true });
+    maybeShowMechanic();
   }
 });
 btnAgain.addEventListener('click', () => {
   loadLevel(levelIndex);
   canvas.focus({ preventScroll: true });
+  maybeShowMechanic();
 });
 btnReplay.addEventListener('click', startReplay);
 btnReplayStop.addEventListener('click', () => stopReplay());
 btnZoomOut.addEventListener('click', () => stepZoom(-1));
 btnZoomIn.addEventListener('click', () => stepZoom(1));
 btnZoomFit.addEventListener('click', resetZoom);
+btnFailRewind.addEventListener('click', () => rewindToStep(failSafeStep));
 btnFailUndo.addEventListener('click', undo);
 btnFailRestart.addEventListener('click', () => {
   loadLevel(levelIndex);
   canvas.focus({ preventScroll: true });
+  maybeShowMechanic();
+});
+btnMechanicOk.addEventListener('click', closeMechanic);
+elMechanic.addEventListener('click', (e) => {
+  if (e.target === elMechanic) closeMechanic();
 });
 btnIntroOk.addEventListener('click', closeIntro);
 btnHelp.addEventListener('click', () => {
@@ -1853,6 +2164,10 @@ document.addEventListener('keydown', (e) => {
     closeSolution();
     return;
   }
+  if (elMechanic && !elMechanic.classList.contains('hidden')) {
+    closeMechanic();
+    return;
+  }
   if (!elLevels.classList.contains('hidden')) {
     closeLevels();
     return;
@@ -1867,6 +2182,7 @@ syncTheme();
 loadLevel(levelIndex);
 if (!titleSeen()) openTitle();
 else if (!introSeen()) openIntro();
+maybeShowMechanic();
 
 const ro = new ResizeObserver(resize);
 ro.observe(stage);
@@ -1948,6 +2264,7 @@ if (isLocalHost) {
     commit,
     undo,
     loadLevel,
+    selectLevel,
     resize,
     reset() {
       loadLevel(levelIndex);
@@ -1962,7 +2279,7 @@ if (isLocalHost) {
     renderLevelGrid,
     isLevelUnlocked,
     get devUnlock() {
-      return DEV_UNLOCK;
+      return UNLOCK_ALL;
     },
     save,
     get replay() {
@@ -1986,6 +2303,7 @@ if (isLocalHost) {
       draw(ctx, layout, state, {
         drag,
         anim,
+        hover,
         now,
         theme,
         reduceMotion: REDUCE_MOTION,

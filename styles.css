@@ -377,6 +377,7 @@ body {
   user-select: none;
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
+  cursor: default;
 }
 
 /* 键盘焦点：用一圈强调色描边，不改变布局 */
@@ -613,6 +614,8 @@ body {
 #intro-ok,
 #next,
 #fail-undo,
+#fail-rewind,
+#mechanic-ok,
 #solution-close,
 #replay-btn,
 #replay-stop,
@@ -633,6 +636,8 @@ body {
 #intro-ok:active,
 #next:active,
 #fail-undo:active,
+#fail-rewind:active,
+#mechanic-ok:active,
 #solution-close:active,
 #replay-btn:active,
 #replay-stop:active,
@@ -1240,6 +1245,88 @@ body {
   font-size: 12px;
   line-height: 1.5;
   color: var(--muted);
+}
+
+/* 失败页：先告诉玩家“还差什么”，再给一条成本最低的回头路 */
+.fail-diagnosis {
+  margin: 0 0 8px !important;
+  font-size: 14px !important;
+  line-height: 1.55;
+  color: var(--text) !important;
+}
+
+.fail-tip {
+  margin: 0 0 16px !important;
+  font-size: 12px !important;
+  line-height: 1.55;
+}
+
+#fail-rewind {
+  margin-bottom: 8px;
+}
+
+/* 新规则卡：只在第一次遇到某条规则时出现，正文分条列出 */
+.mechanic-card {
+  width: min(340px, 100%);
+}
+
+.mechanic-body {
+  display: grid;
+  gap: 10px;
+  margin: 4px 0 18px;
+  text-align: left;
+}
+
+.mechanic-body section {
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.mechanic-body h3 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: var(--rules-strong);
+}
+
+.mechanic-body p {
+  margin: 0 !important;
+  font-size: 12.5px !important;
+  line-height: 1.55;
+}
+
+/* 帮助页把后期规则收进 details：前期不一次性倒给新玩家 */
+.rules-more {
+  margin: 0 0 14px;
+  text-align: left;
+}
+
+.rules-more summary {
+  padding: 9px 11px;
+  font-size: 12px;
+  color: var(--accent);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.rules-more summary::-webkit-details-marker {
+  display: none;
+}
+
+.rules-more summary::before {
+  content: '▸ ';
+}
+
+.rules-more[open] summary::before {
+  content: '▾ ';
+}
+
+.rules-more[open] summary {
+  margin-bottom: 10px;
 }
 
 @keyframes fade-in {
