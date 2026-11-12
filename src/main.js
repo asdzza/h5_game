@@ -55,6 +55,7 @@ const elSolution = document.getElementById('solution');
 const elSolutionTitle = document.getElementById('solution-title');
 const elSolutionNote = document.getElementById('solution-note');
 const elSolutionList = document.getElementById('solution-list');
+const elSolutionIdea = document.getElementById('solution-idea');
 const btnTitleStart = document.getElementById('title-start');
 const btnTitleLevels = document.getElementById('title-levels');
 const elTitleDemo = document.getElementById('title-demo');
@@ -276,27 +277,34 @@ function updateHud() {
   elMovesFill.classList.toggle('tight', moves >= level.limit - 1);
   elMovesPar.style.left = `${((level.par / level.limit) * 100).toFixed(1)}%`;
   // 三星线下方常驻当前星级目标：过了 par 就切成 2★ 线，过了 2★ 线只剩 1★。
+  // 与结算的 starsFor 同口径：先按步数定档，再减本次提示扣星（最低 1★）——
+  // 用了提示后 HUD 不能再显示拿不到的 3★，否则星级行和结算页自相矛盾。
   const twoLine = twoStarLine(level);
+  const tier = moves <= level.par ? 3 : moves <= twoLine ? 2 : 1;
+  const shown = Math.max(1, tier - hintUsed);
+  const pen = hintUsed ? ` · 提示扣 ${hintUsed}★` : '';
   let aim;
   let aimState = '';
-  if (moves <= level.par) {
+  if (shown >= 3) {
     aim = `3★ ≤ ${level.par} 步`;
-  } else if (moves <= twoLine) {
-    aim = `2★ ≤ ${twoLine} 步`;
+  } else if (shown === 2) {
+    // 2★ 有两种来源：步数过了 par，或还在 par 内但提示扣掉了 3★
+    const line = moves <= level.par ? level.par : twoLine;
+    aim = `2★ ≤ ${line} 步${pen}`;
     aimState = 'lost3';
   } else {
-    aim = `1★ · 上限 ${level.limit} 步`;
+    aim = `1★ · 上限 ${level.limit} 步${pen}`;
     aimState = 'lost2';
   }
   elMovesGoal.textContent = aim;
   elMovesGoal.classList.toggle('lost3', aimState === 'lost3');
   elMovesGoal.classList.toggle('lost2', aimState === 'lost2');
   const aimA11y =
-    aimState === 'lost3'
-      ? `三星线已过，二星线 ${twoLine} 步内`
-      : aimState === 'lost2'
-        ? `只剩一星，上限 ${level.limit} 步`
-        : `三星目标 ${level.par} 步内`;
+    shown >= 3
+      ? `三星目标 ${level.par} 步内`
+      : shown === 2
+        ? `两星线 ${moves <= level.par ? level.par : twoLine} 步内${hintUsed ? '，已用提示' : ''}`
+        : `只剩一星，上限 ${level.limit} 步${hintUsed ? '，且已用提示' : ''}`;
   elMoves.title = `已用 ${moves} 步 · 上限 ${level.limit} 步 · ${aimA11y}`;
   elMoves.setAttribute(
     'aria-label',
@@ -488,16 +496,52 @@ function solutionSteps() {
     .filter(Boolean);
 }
 
+// 解法面板的逐步列表：走法来自 src/solutions.js（A\* 生成、逐关回放校验），
+// 结算页的「看最优解回放」用的也是同一份数据。此前面板直接切 nudge 叙述，
+// 长叙述的关卡（如 #8）会挤成一条、没法照着走；现在每一步都对得上盘面。
+function solutionPathLines() {
+  const path = parseSolutionPath(SOLUTIONS[level.id] || '');
+  const out = [];
+  if (!path.length) return out;
+  let st = parse(level.rows);
+  for (const mv of path) {
+    const m = moveFrom(st, mv.r, mv.c, mv.d);
+    if (!m) break; // 预置解法与内核不符时防御性截断（test_rules 逐关回放会拦截）
+    const color = st.c[mv.r * st.w + mv.c];
+    const name = COLOR_NAMES[color - 1] || '方块';
+    const from = `第 ${mv.r + 1} 行第 ${mv.c + 1} 列的${name}块向${DIR_NAMES[mv.d]}`;
+    let act;
+    if (m.res === 'pop') {
+      const hitAnchor = m.res === 'pop' && st.fixed && st.fixed[m.br * st.w + m.bc];
+      act = hitAnchor ? '撞掉钉子，一起消失' : '撞上同色，一起消失';
+    } else {
+      act = `停在第 ${m.tr + 1} 行第 ${m.tc + 1} 列`;
+    }
+    const filledBefore = st.filled || 0;
+    st = applyMove(st, m);
+    if ((st.filled || 0) !== filledBefore) act += '，停进泊位';
+    out.push(`${from}，${act}`);
+  }
+  return out;
+}
+
 function openSolution() {
-  if (!level.nudge) return;
+  const steps = solutionPathLines();
+  const nudge = (level.nudge || '').trim();
+  if (!steps.length && !nudge) return;
   elSolutionTitle.textContent = `第 ${level.id} 关 · ${level.name}`;
   elSolutionNote.textContent = `${
     moves
       ? `这份走法从开局起算；你已经走了 ${moves} 步，建议先点「重开」再照着走。`
       : '这份走法从开局起算，按顺序拖动即可。'
   }${penaltyLine() || '这份走法是本关的完整答案。'}`;
+  // 思路（nudge 叙述）与步骤（坐标走法）分开：先懂为什么，再照着走
+  if (elSolutionIdea) {
+    elSolutionIdea.textContent = nudge ? `思路：${nudge}` : '';
+    elSolutionIdea.hidden = !nudge;
+  }
   elSolutionList.replaceChildren(
-    ...solutionSteps().map((text) => {
+    ...(steps.length ? steps : solutionSteps()).map((text) => {
       const li = document.createElement('li');
       li.textContent = text;
       return li;
@@ -539,6 +583,8 @@ function requestHint() {
     openSolution();
   }
   updateHintButton();
+  // 扣星会让 HUD 星级行的目标变化（如 3★ → 2★），立即刷新而不是等下一步
+  updateHud();
 }
 
 function renderStars(n) {
